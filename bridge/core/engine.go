@@ -541,6 +541,7 @@ type Engine struct {
 
 	platformLifecycleMu sync.Mutex
 	platformReady       map[Platform]bool
+	platformConnectErr  map[Platform]error // last connect error an async platform reported (WaitPlatformsReady)
 	stopping            bool
 	messageWorkers      sync.WaitGroup // admission is serialized with Stop by platformLifecycleMu
 	replyFooterMu       sync.Mutex
@@ -881,6 +882,7 @@ func NewEngine(name string, ag Agent, platforms []Platform, sessionStorePath str
 		interactiveStates:     make(map[string]*interactiveState),
 		sendWorkDirs:          make(map[string]string),
 		platformReady:         make(map[Platform]bool),
+		platformConnectErr:    make(map[Platform]error),
 		startedAt:             time.Now(),
 		streamPreview:         DefaultStreamPreviewCfg(),
 		references:            DefaultReferenceRenderCfg(),
@@ -1242,6 +1244,11 @@ func (e *Engine) AddPlatform(p Platform) {
 	e.platforms = append(e.platforms, p)
 }
 
+// Platforms returns a copy of the engine's platform list.
+func (e *Engine) Platforms() []Platform {
+	return append([]Platform(nil), e.platforms...)
+}
+
 func (e *Engine) SetCronScheduler(cs *CronScheduler) {
 	e.cronScheduler = cs
 }
@@ -1271,6 +1278,37 @@ type ConfigReloadResult struct {
 	DisplayUpdated   bool
 	ProvidersUpdated int
 	CommandsUpdated  int
+	// RestartKeys lists platform options ("<platform>.<key>") that changed in config.toml
+	// but only take effect after a restart.
+	RestartKeys []string
+}
+
+// OptionsReloader is implemented by platforms that can take some options from a
+// reloaded config.toml while running. ReloadOptions returns the changed keys that still
+// need a restart.
+type OptionsReloader interface {
+	ReloadOptions(opts map[string]any) []string
+}
+
+// ReloadPlatformOptions hands each running platform its options from the reloaded config
+// (keyed by platform type). It returns "<type>.<key>" for every change that needs a restart;
+// a platform without OptionsReloader reports "<type>" when its options changed at all.
+func (e *Engine) ReloadPlatformOptions(byType map[string]map[string]any, started map[string]map[string]any) []string {
+	var restart []string
+	for _, p := range e.platforms {
+		opts, ok := byType[p.Name()]
+		if !ok {
+			continue
+		}
+		if r, ok := p.(OptionsReloader); ok {
+			for _, k := range r.ReloadOptions(opts) {
+				restart = append(restart, p.Name()+"."+k)
+			}
+		} else if started != nil && fmt.Sprint(started[p.Name()]) != fmt.Sprint(opts) {
+			restart = append(restart, p.Name())
+		}
+	}
+	return restart
 }
 
 func (e *Engine) SetConfigReloadFunc(fn func() (*ConfigReloadResult, error)) {
@@ -1901,6 +1939,45 @@ func (e *Engine) waitTimerPlatformReady(p Platform) error {
 	}
 	return nil
 }
+
+// WaitPlatformsReady is for a project loaded into a running service: Start returns before an async
+// platform (Discord, cloud_web, …) has connected, so this waits until every async platform reports
+// ready. It fails on the first connect error one of them reports (startup would keep retrying in
+// the background; a role added from the panel should say why it is not online instead), or when
+// one is still not ready after timeout.
+func (e *Engine) WaitPlatformsReady(timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		var waiting Platform
+		e.platformLifecycleMu.Lock()
+		for _, p := range e.platforms {
+			if _, async := p.(AsyncRecoverablePlatform); !async || e.platformReady[p] {
+				continue
+			}
+			if err := e.platformConnectErr[p]; err != nil {
+				e.platformLifecycleMu.Unlock()
+				return fmt.Errorf("platform %s: %w", p.Name(), err)
+			}
+			waiting = p
+			break
+		}
+		e.platformLifecycleMu.Unlock()
+		if waiting == nil {
+			return nil
+		}
+		if e.ctx.Err() != nil {
+			return fmt.Errorf("engine stopping before platform %q was ready", waiting.Name())
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("platform %q not connected after %s", waiting.Name(), timeout)
+		}
+		time.Sleep(200 * time.Millisecond) // source: the poll interval of waitTimerPlatformReady above
+	}
+}
+
+// PlatformReadyTimeout is how long WaitPlatformsReady is given by hot loading: the same wait a
+// timer job gives an async platform (timerPlatformReadyTimeout).
+func PlatformReadyTimeout() time.Duration { return timerPlatformReadyTimeout }
 
 func (e *Engine) ExecuteTimerJob(job *TimerJob) error {
 	if e.IsPaused() {
@@ -2822,6 +2899,14 @@ func (e *Engine) OnPlatformReady(p Platform) {
 
 // OnPlatformUnavailable marks an async platform as unavailable.
 func (e *Engine) OnPlatformUnavailable(p Platform, err error) {
+	if err != nil {
+		e.platformLifecycleMu.Lock()
+		if e.platformConnectErr == nil {
+			e.platformConnectErr = make(map[Platform]error)
+		}
+		e.platformConnectErr[p] = err
+		e.platformLifecycleMu.Unlock()
+	}
 	if !e.markPlatformUnavailable(p) {
 		return
 	}
