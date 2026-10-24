@@ -52,9 +52,9 @@ def query(text):
 
 def _shown(rel):
     """推给 agent 的路径：家目录写成 ~，agent 直接能读。"""
-    p = str(WIKI / rel)
-    home = str(Path.home())
-    return "~" + p[len(home):] if p.startswith(home + os.sep) else p
+    p = (WIKI / rel).as_posix()
+    home = Path.home().as_posix()
+    return "~" + p[len(home):] if p.startswith(home + "/") else p
 
 
 def match_wiki(text, k=TOP_PAGES):

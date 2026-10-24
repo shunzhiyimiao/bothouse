@@ -6,7 +6,7 @@
 
 ## 0. 要准备的
 
-- macOS 或 Linux。gate 用向导里填的 jev 打分，不带本地模型。
+- 本文的安装和后台运行命令面向 macOS 或 Linux；Windows 的 wiki 检索支持范围见第 4 节。gate 用向导里填的 jev 打分，不带本地模型。
 - 装 ccm 不用 Go，也不用 Node：用预编译包（第 1 步）。gate 要 [uv](https://docs.astral.sh/uv/)；wiki 要 Python 3.9+ 和 git。
 - 已登录的 `claude` CLI（也可以是 codex 等 bothouse 支持的 agent）。
 - 每个 bot 一个聊天平台的 bot 账号（线 2 第 1 步）。
@@ -77,6 +77,7 @@ ccm 拼在消息前面：
 ```
 
 - wiki 目录用 `GATE_WIKI` 指（默认 `~/wiki`）；设成 `off` 或空就不推。目录不存在也不推，不报错。
+- wiki 页应保存为 UTF-8；`wiki_search.py` 和 `/context` 的词法检索支持 Windows 中文系统（cp936），无需设置 `PYTHONUTF8=1`。返回的路径统一使用 `/`，家目录下仍缩写为 `~/...`。此支持范围仅涵盖词法检索；本篇 shell 安装命令、launchd 和本机模型后端仍按各自的平台要求使用。
 - 同一页同一个会话只推一次（ccm 记着）。wiki 改了最迟 5 分钟后检索得到。
 - 只有 `MEMORY.md` → 域目录（有 `README.md`）→ 主题页这样的页会被检索；根目录的 `MEMORY.md`、`log.md`、各 `README.md` 不算。
 

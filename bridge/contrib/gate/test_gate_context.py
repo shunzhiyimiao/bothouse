@@ -37,7 +37,7 @@ def load_gate(team=None, wiki=None):
 class T(unittest.TestCase):
     def test_default_team_is_example(self):
         g = load_gate()
-        ex = json.loads((HERE / "team.example.json").read_text())
+        ex = json.loads((HERE / "team.example.json").read_text(encoding="utf-8"))
         self.assertEqual(g.LEAD, ex["lead"]["name"])
         self.assertEqual(set(g.SUBS), set(ex["subs"]))
         self.assertNotIn("橘", g.PROMPT)   # 提示词里的占位名字换成了当前团队
@@ -47,8 +47,8 @@ class T(unittest.TestCase):
         (d / "team.json").write_text(json.dumps({"lead": {"name": "C酱"}, "subs": {"gge": {"name": "G哥"}}}))
         w = d / "wiki"
         (w / "infra").mkdir(parents=True)
-        (w / "infra" / "README.md").write_text("x")
-        (w / "infra" / "vps.md").write_text("---\ndescription: VPS 一览\n---\n- 代理端口 7890\n")
+        (w / "infra" / "README.md").write_text("x", encoding="utf-8")
+        (w / "infra" / "vps.md").write_text("---\ndescription: VPS 一览\n---\n- 代理端口 7890\n", encoding="utf-8")
         g = load_gate(team=str(d / "team.json"), wiki=str(w))
         self.assertEqual((g.LEAD, g.SUBS), ("C酱", {"gge": "G哥"}))
         srv = ThreadingHTTPServer(("127.0.0.1", 0), g.H)
@@ -60,7 +60,8 @@ class T(unittest.TestCase):
             out = json.loads(urllib.request.urlopen(req, timeout=5).read())
         finally:
             srv.shutdown()
-        self.assertEqual(out, {"wiki": [{"path": str(w / "infra/vps.md"), "desc": "VPS 一览 | 4: - 代理端口 7890"}]})
+            srv.server_close()
+        self.assertEqual(out, {"wiki": [{"path": (w / "infra/vps.md").as_posix(), "desc": "VPS 一览 | 4: - 代理端口 7890"}]})
 
     def test_busy_mention_lead_pause_aborts(self):  # 主角色被 @ 或叫名字、正忙、「暂停」→ abort；不忙 → reply
         g = load_gate()
