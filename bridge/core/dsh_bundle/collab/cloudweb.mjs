@@ -24,6 +24,20 @@ export const CAPABILITIES = ['text', 'reconstruct_reply', 'typing', 'preview', '
  */
 export const CAP_TEAM_WORKSPACE = 'team_workspace';
 export function supportsWorkspaces(store) { return typeof store?.createWorkspace === 'function'; }
+/**
+ * Bot -> channel images, files and voice clips (bridge platform/cloud-web SendImage /
+ * SendFile / SendAudio). Advertised only when the gateway has an attachment store; the
+ * bytes are saved there and shown in the Channel page like an uploaded attachment.
+ */
+export const MEDIA_CAPABILITIES = ['image', 'file', 'audio'];
+// `format` of an audio frame (cc-connect audioFormatHint: file extension or mime subtype)
+// -> mime type the page's <audio> element can play.
+const AUDIO_MIME = { mp3: 'audio/mpeg', mpeg: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', opus: 'audio/ogg', oga: 'audio/ogg',
+  m4a: 'audio/mp4', mp4: 'audio/mp4', aac: 'audio/aac', flac: 'audio/flac', webm: 'audio/webm', amr: 'audio/amr', silk: 'audio/silk' };
+export function audioMime(format) {
+  const f = String(format ?? '').toLowerCase().replace(/^\./, '').replace(/^audio\//, '');
+  return AUDIO_MIME[f] ?? (f ? `audio/${f.replace(/[^a-z0-9.+-]/g, '')}` : 'audio/mpeg');
+}
 
 export const PERM_DECISIONS = { allow: 'perm:allow', deny: 'perm:deny', allow_all: 'perm:allow_all' };
 const PERM_STATES = { allow: 'allowed', deny: 'denied', allow_all: 'allowed_all' };
@@ -38,7 +52,7 @@ const REGISTER_TIMEOUT_MS = 10_000;
 const WS_BAD_REGISTER = 4002;
 const WS_REPLACED = 4003;
 // cc-connect status notices that teammates never see (discord.go isBotNotice).
-const NOTICE_PREFIXES = ['📬', '✅', '↪', '⏳', '🔄', '⏹', '⏸'];
+export const NOTICE_PREFIXES = ['📬', '✅', '↪', '⏳', '🔄', '⏹', '⏸'];
 // "model · usage" footer cc-connect appends (discord.go botFooter).
 const FOOTER = /(?:^|\n+)\*[^*\n]*·[^*]*\*\s*$/s;
 const BARE_MENTION = '（只 @ 了你，没写内容：看上面的频道消息判断要你做什么；看不出来就问）';
@@ -67,6 +81,14 @@ export function progressCard(content) {
   let p;
   try { p = JSON.parse(content.slice(PROGRESS_PREFIX.length)); } catch { return undefined; }
   if (p === null || typeof p !== 'object') return undefined;
+  return progressCardOf(p);
+}
+
+/**
+ * Progress card payload object ({ agent, state, steps, elapsed_sec, items }) → { text, card }.
+ * Shared by bridge cards above and DSH/CLI member turns (dsh-member.mjs), so both render alike.
+ */
+export function progressCardOf(p) {
   const state = p.state in CARD_STATES ? p.state : 'running';
   const steps = Number.isInteger(p.steps) ? p.steps : 0;
   const sec = Number.isInteger(p.elapsed_sec) ? p.elapsed_sec : 0;
@@ -80,7 +102,9 @@ export function progressCard(content) {
   }
   const agent = String(p.agent ?? 'Agent').trim() || 'Agent';
   const brief = [lines[0], ...briefSteps(items, state)].join('\n');
-  return { text: lines.join('\n'), card: JSON.stringify({ title: `${agent} · ${CARD_STATES[state]}`, state, steps, elapsed_sec: sec, brief }) };
+  const card = { text: lines.join('\n'), card: JSON.stringify({ title: `${agent} · ${CARD_STATES[state]}`, state, steps, elapsed_sec: sec, brief }) };
+  // Bridge task card (cloud-web public_progress.go): its members feed the task board (tasks.mjs fromCard).
+  return Array.isArray(p.task_members) ? { ...card, members: p.task_members } : card;
 }
 
 /**
@@ -202,7 +226,7 @@ export class CloudWebGateway {
     const old = this.bots.get(id);
     this.bots.set(id, bot);
     if (old !== undefined) old.ws.close(WS_REPLACED, 'replaced by new connection');
-    const capabilities = supportsWorkspaces(this.hub.store) ? [...CAPABILITIES, CAP_TEAM_WORKSPACE] : CAPABILITIES;
+    const capabilities = [...CAPABILITIES, ...(this.files ? MEDIA_CAPABILITIES : []), ...(supportsWorkspaces(this.hub.store) ? [CAP_TEAM_WORKSPACE] : [])];
     send(ws, { type: 'register_ack', ok: true, capabilities, server: { name: 'conest-dsh-collab' } });
     this.hub.setMember(member);
     // A reconnect means a restarted cc-connect; its last typing_stop may be lost.
@@ -296,6 +320,7 @@ export class CloudWebGateway {
             ...view(r), parent_id: r.parent_id == null ? '' : roomKey(r.parent_id),
             owner: owner == null ? '' : roomKey(owner),
             active: this.tasks?.countActive(r.id) ?? 0,
+            paused: this.tasks?.countPaused?.(r.id) ?? 0,
           };
         });
         return { ok: true, self: view(self), rooms };
@@ -316,7 +341,9 @@ export class CloudWebGateway {
         // stale-claim) when d.claim names an earlier claim than the current one.
         if (self.kind !== 'workspace') return { ok: false, error: 'not-workspace' };
         const claim = d.claim == null || d.claim === '' ? null : String(d.claim);
-        const released = this.tasks ? this.tasks.release(id, claim) : store.releaseWorkspace(id, claim);
+        // park (core ParkTeamWorkspace): its tasks are paused, not finished; they stop counting first.
+        const released = !this.tasks ? store.releaseWorkspace(id, claim)
+          : d.park ? this.tasks.park(id, claim) : this.tasks.release(id, claim);
         if (released) this.hub.emit({ type: 'rooms', rooms: store.roomsView() });
         return { ok: true, room: view(self) };
       }
@@ -409,6 +436,25 @@ export class CloudWebGateway {
         this.pendingPerms.set(message.id, { bot: member.id, room, sessionKey: d.session_key, replyCtx: typeof d.reply_ctx === 'string' ? d.reply_ctx : roomKey(room) });
         return;
       }
+      case 'image':
+      case 'file':
+      case 'audio': {
+        const room = roomOf(d, this.hub.store);
+        if (room === undefined || this.files === undefined || typeof d.data !== 'string' || !d.data) return;
+        const ext = String(d.format ?? '').toLowerCase().replace(/^\./, '').replace(/^audio\//, '').replace(/[^a-z0-9]/g, '');
+        const mime = d.type === 'audio' ? audioMime(d.format) : (typeof d.mime_type === 'string' && d.mime_type) || 'application/octet-stream';
+        const name = typeof d.file_name === 'string' && d.file_name ? d.file_name
+          : d.type === 'audio' ? `voice.${ext || 'mp3'}` : d.type === 'image' ? `image.${mime.split('/')[1] ?? 'png'}` : 'file';
+        let attachments;
+        try {
+          attachments = this.files.save([{ name, mime, data: d.data }]);
+        } catch (error) {
+          this.logger.warn('collab: cloud-web %s frame from %s dropped: %s', d.type, member.id, error?.message ?? error);
+          return;
+        }
+        this.hub.post(room, { authorKind: 'role', author: member.id, name: member.name, text: '', attachments });
+        return;
+      }
       case 'typing_start':
       case 'typing_stop': {
         const room = roomOf(d, this.hub.store);
@@ -428,8 +474,11 @@ export class CloudWebGateway {
           });
           // #119: a task card create retried after a lost ack finds the row it
           // made before; show the newer content instead of the first one.
-          if (!created && newerSeq(message, seq)) this.hub.edit(message.id, 'role', member.id, body.text, body.card);
+          const fresh = created || newerSeq(message, seq);
+          if (!created && fresh) this.hub.edit(message.id, 'role', member.id, body.text, body.card);
           handle = String(message.id);
+          // A late older frame must not reopen tasks the newer card already handed back.
+          if (fresh && body.members) this.tasks?.fromCard(room, member.id, message.id, body.members);
         }
         // Always ack, or cc-connect waits out its 10 s timeout.
         send(bot.ws, { type: 'preview_ack', ref_id: d.ref_id, preview_handle: handle });
@@ -449,7 +498,9 @@ export class CloudWebGateway {
         // #119: a delayed older task card frame must not roll the card back.
         if (seq !== undefined && !newerSeq(this.hub.store.message(Number(h)), seq)) return;
         const body = withSeq(this.body(d.content), seq);
-        if (body.text) this.hub.edit(Number(h), 'role', member.id, body.text, body.card);
+        if (!body.text) return;
+        const row = this.hub.edit(Number(h), 'role', member.id, body.text, body.card);
+        if (row !== undefined && body.members) this.tasks?.fromCard(row.room_id, member.id, row.id, body.members);
         return;
       }
       default:

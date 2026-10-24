@@ -82,7 +82,7 @@ export class Store {
       del: this.db.prepare('UPDATE messages SET deleted = 1 WHERE id = ? AND author_kind = ? AND author = ? AND deleted = 0 RETURNING *'),
       before: this.db.prepare('SELECT * FROM messages WHERE room_id = ? AND id < ? AND deleted = 0 ORDER BY id DESC LIMIT ?'),
       after: this.db.prepare('SELECT * FROM messages WHERE room_id = ? AND id > ? AND deleted = 0 ORDER BY id ASC LIMIT ?'),
-      relay: this.db.prepare(`SELECT COUNT(*) AS n FROM messages WHERE room_id = ? AND id <= ? AND deleted = 0 AND author_kind = 'role'
+      relay: this.db.prepare(`SELECT COUNT(*) AS n FROM messages WHERE room_id = ? AND id <= ? AND deleted = 0 AND author_kind = 'role' AND card IS NULL
         AND id > COALESCE((SELECT MAX(id) FROM messages WHERE room_id = ? AND id <= ? AND author_kind = 'user'), 0)`),
       binding: this.db.prepare('SELECT session_id, context_cursor FROM bindings WHERE member_id = ? AND room_id = ?'),
       // A fresh session starts reading after the room's last release (room_resets), not from its start.
@@ -198,11 +198,14 @@ export class Store {
         updated_at REAL NOT NULL,
         returned_at REAL,
         remind_msg_id INTEGER,
-        reason TEXT)`);
+        reason TEXT,
+        paused_at REAL,
+        paused_chat INTEGER,
+        source TEXT)`);
     } else {
       const cols = new Set(this.db.prepare('PRAGMA table_info(tasks)').all().map(c => c.name));
       for (const [name, type] of [['parent_task', 'INTEGER'], ['next_check_at', 'REAL'], ['result_msg_id', 'INTEGER'],
-        ['assign_msg_id', 'INTEGER'], ['note', 'TEXT'], ['returned_at', 'REAL'], ['remind_msg_id', 'INTEGER'], ['reason', 'TEXT']]) {
+        ['assign_msg_id', 'INTEGER'], ['note', 'TEXT'], ['returned_at', 'REAL'], ['remind_msg_id', 'INTEGER'], ['reason', 'TEXT'], ['paused_at', 'REAL'], ['paused_chat', 'INTEGER'], ['source', 'TEXT']]) {
         if (!cols.has(name)) this.db.exec(`ALTER TABLE tasks ADD COLUMN ${name} ${type}`);
       }
     }
@@ -398,10 +401,10 @@ export class Store {
     return handoff !== undefined && (handoff.status === 'returned' || handoff.status === 'done');
   }
 
-  /** Tasks in work in roomId (same statuses as tasks.mjs WORKING). */
+  /** Tasks in work in roomId (same statuses as tasks.mjs WORKING; paused ones do not count). */
   activeTasks(roomId) {
     return this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ?
-      AND status IN ('assigned', 'accepted', 'asked', 'rework')`).get(roomId).n;
+      AND status IN ('assigned', 'accepted', 'asked', 'rework') AND paused_at IS NULL`).get(roomId).n;
   }
 
   /**

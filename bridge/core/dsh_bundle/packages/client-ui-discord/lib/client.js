@@ -3,11 +3,29 @@ window.__ModuleLoader__.load({
  factory: (require) => {
  var module = { exports: {} };
  var exports = module.exports;
-(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".Ah8iqq_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.Ah8iqq_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.Ah8iqq_rooms, .Ah8iqq_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n.Ah8iqq_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.Ah8iqq_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.Ah8iqq_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.Ah8iqq_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.Ah8iqq_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.Ah8iqq_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.Ah8iqq_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.Ah8iqq_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.Ah8iqq_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.Ah8iqq_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.Ah8iqq_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.Ah8iqq_chatHead {\n  -webkit-app-region: drag;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.Ah8iqq_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.Ah8iqq_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.Ah8iqq_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.Ah8iqq_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.Ah8iqq_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.Ah8iqq_system .Ah8iqq_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.Ah8iqq_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.Ah8iqq_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.Ah8iqq_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.Ah8iqq_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.Ah8iqq_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.Ah8iqq_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.Ah8iqq_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.Ah8iqq_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.Ah8iqq_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.Ah8iqq_messageBody {\n  min-width: 0;\n}\n\n.Ah8iqq_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.Ah8iqq_author {\n  font-weight: 600;\n}\n\n.Ah8iqq_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.Ah8iqq_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.Ah8iqq_edited {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.Ah8iqq_ownActions {\n  opacity: 0;\n  gap: 8px;\n  margin-left: auto;\n  display: inline-flex;\n}\n\n.Ah8iqq_message:hover .Ah8iqq_ownActions, .Ah8iqq_ownActions:focus-within {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .Ah8iqq_ownActions {\n    opacity: 1;\n  }\n}\n\n.Ah8iqq_editBox {\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 4px;\n  display: flex;\n}\n\n.Ah8iqq_editInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-height: 60px;\n  color: inherit;\n  font: inherit;\n  resize: vertical;\n  padding: 8px;\n}\n\n.Ah8iqq_editBar {\n  justify-content: flex-end;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.Ah8iqq_editBar .Ah8iqq_time {\n  margin-right: auto;\n}\n\n.Ah8iqq_text {\n  white-space: normal;\n  overflow-wrap: anywhere;\n}\n\n.Ah8iqq_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.Ah8iqq_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.Ah8iqq_card[data-state=\"retrying\"] {\n  border-left-color: var(--dsw-alias-state-warning-primary, #faa61a);\n}\n\n.Ah8iqq_cardButtons {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.Ah8iqq_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.Ah8iqq_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.Ah8iqq_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.Ah8iqq_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.Ah8iqq_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.Ah8iqq_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.Ah8iqq_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.Ah8iqq_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.Ah8iqq_message {\n  position: relative;\n}\n\n.Ah8iqq_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.Ah8iqq_quoteDeleted {\n  font-style: italic;\n}\n\n.Ah8iqq_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.Ah8iqq_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n.Ah8iqq_message:hover .Ah8iqq_replyButton, .Ah8iqq_message:focus-within .Ah8iqq_replyButton, .Ah8iqq_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .Ah8iqq_replyButton {\n    opacity: 1;\n  }\n}\n\n.Ah8iqq_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.Ah8iqq_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.Ah8iqq_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.Ah8iqq_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.Ah8iqq_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.Ah8iqq_composerRow {\n  align-items: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.Ah8iqq_mentionButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 40px;\n  height: 40px;\n  color: var(--dsw-alias-label-secondary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  cursor: pointer;\n  flex: none;\n  font-size: 18px;\n  font-weight: 600;\n}\n\n.Ah8iqq_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.Ah8iqq_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.Ah8iqq_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.Ah8iqq_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.Ah8iqq_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.Ah8iqq_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.Ah8iqq_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.Ah8iqq_mentionName {\n  font-weight: 600;\n}\n\n.Ah8iqq_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.Ah8iqq_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.Ah8iqq_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.Ah8iqq_input {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 100%;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  padding: 10px 14px;\n}\n\n.Ah8iqq_input:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.Ah8iqq_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.Ah8iqq_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.Ah8iqq_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.Ah8iqq_offline {\n  opacity: .5;\n}\n\n.Ah8iqq_memberAvatar {\n  position: relative;\n}\n\n.Ah8iqq_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.Ah8iqq_offline .Ah8iqq_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.Ah8iqq_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.Ah8iqq_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.Ah8iqq_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .Ah8iqq_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .Ah8iqq_rooms, .Ah8iqq_members {\n    display: none;\n  }\n}\n\n.Ah8iqq_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.Ah8iqq_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.Ah8iqq_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.Ah8iqq_roomInput, .Ah8iqq_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.Ah8iqq_roomInput {\n  margin: 2px 0 6px;\n}\n\n.Ah8iqq_roomInput:focus-visible, .Ah8iqq_fieldInput:focus-visible, .Ah8iqq_iconButton:focus-visible, .Ah8iqq_linkButton:focus-visible, .Ah8iqq_addMemberButton:focus-visible, .Ah8iqq_primaryButton:focus-visible, .Ah8iqq_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.Ah8iqq_addMemberButton {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.Ah8iqq_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.Ah8iqq_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.Ah8iqq_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.Ah8iqq_memberRow .Ah8iqq_member:hover {\n  background: none;\n}\n\n.Ah8iqq_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.Ah8iqq_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.Ah8iqq_memberRow:hover .Ah8iqq_memberActions, .Ah8iqq_memberRow:focus-within .Ah8iqq_memberActions {\n  opacity: 1;\n}\n\n.Ah8iqq_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.Ah8iqq_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.Ah8iqq_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.Ah8iqq_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.Ah8iqq_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.Ah8iqq_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.Ah8iqq_field textarea {\n  resize: vertical;\n}\n\n.Ah8iqq_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.Ah8iqq_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.Ah8iqq_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.Ah8iqq_primaryButton, .Ah8iqq_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.Ah8iqq_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.Ah8iqq_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.Ah8iqq_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.Ah8iqq_memberFailed .Ah8iqq_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.Ah8iqq_memberFailed .Ah8iqq_presence {\n  background: #ed4245;\n}\n\n.Ah8iqq_mobileButton, .Ah8iqq_drawerBackdrop {\n  display: none;\n}\n\n.Ah8iqq_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.Ah8iqq_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.Ah8iqq_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.Ah8iqq_panelToggleEnd {\n  margin-left: auto;\n}\n\n.Ah8iqq_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n.Ah8iqq_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.Ah8iqq_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n.Ah8iqq_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.Ah8iqq_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  .Ah8iqq_page.Ah8iqq_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .Ah8iqq_page.Ah8iqq_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .Ah8iqq_page.Ah8iqq_roomsHidden.Ah8iqq_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .Ah8iqq_roomsHidden > .Ah8iqq_rooms, .Ah8iqq_membersHidden > .Ah8iqq_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .Ah8iqq_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .Ah8iqq_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .Ah8iqq_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .Ah8iqq_panelToggle {\n    display: none;\n  }\n\n  .Ah8iqq_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .Ah8iqq_rooms.Ah8iqq_drawerOpen, .Ah8iqq_members.Ah8iqq_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .Ah8iqq_rooms.Ah8iqq_drawerOpen {\n    left: 0;\n  }\n\n  .Ah8iqq_members.Ah8iqq_drawerOpen {\n    right: 0;\n  }\n\n  .Ah8iqq_memberActions {\n    opacity: 1;\n  }\n\n  .Ah8iqq_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.Ah8iqq_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.Ah8iqq_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.Ah8iqq_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.Ah8iqq_taskBoard {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin-bottom: 8px;\n  padding-bottom: 8px;\n}\n\n.Ah8iqq_leadControl {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin: 0 0 10px;\n  padding: 0 8px 10px;\n}\n\n.Ah8iqq_leadControl .Ah8iqq_field {\n  color: var(--dsw-alias-label-tertiary);\n  gap: 5px;\n  font-size: 12px;\n}\n\n.Ah8iqq_fieldLabel {\n  color: var(--dsw-alias-label-tertiary);\n  margin-bottom: 5px;\n  font-size: 12px;\n  display: block;\n}\n\n.Ah8iqq_leadControl .Ah8iqq_fieldInput {\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  text-align: left;\n  cursor: pointer;\n}\n\n.Ah8iqq_leadMenu {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  gap: 2px;\n  margin-top: 4px;\n  padding: 4px;\n  display: grid;\n}\n\n.Ah8iqq_leadOption {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n}\n\n.Ah8iqq_leadOption:hover, .Ah8iqq_leadOption[aria-selected=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.Ah8iqq_taskSection + .Ah8iqq_taskSection {\n  margin-top: 8px;\n}\n\n.Ah8iqq_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.Ah8iqq_taskOwnerGroup + .Ah8iqq_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n.Ah8iqq_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n.Ah8iqq_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.Ah8iqq_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.Ah8iqq_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.Ah8iqq_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.Ah8iqq_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.Ah8iqq_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.Ah8iqq_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.Ah8iqq_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.Ah8iqq_taskDone summary {\n  cursor: pointer;\n}\n\n.Ah8iqq_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.Ah8iqq_taskStatus[data-status=\"asked\"], .Ah8iqq_taskStatus[data-status=\"escalated\"], .Ah8iqq_taskStatus[data-status=\"declined\"], .Ah8iqq_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.Ah8iqq_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.Ah8iqq_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.Ah8iqq_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.Ah8iqq_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.Ah8iqq_taskMemberName {\n  font-weight: 600;\n}\n\n.Ah8iqq_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.Ah8iqq_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n\n.Ah8iqq_attachments {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 4px 0;\n  display: flex;\n}\n\n.Ah8iqq_attachmentImage {\n  border-radius: 4px;\n  max-width: 320px;\n  max-height: 240px;\n  display: block;\n}\n\n.Ah8iqq_attachmentThumb {\n  object-fit: cover;\n  vertical-align: middle;\n  border-radius: 3px;\n  width: 32px;\n  height: 32px;\n}\n\n.Ah8iqq_attachmentFile {\n  background: var(--background-secondary, #7f7f7f26);\n  color: inherit;\n  border-radius: 4px;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 8px;\n  text-decoration: none;\n  display: inline-flex;\n}\n\n.Ah8iqq_attachmentSize {\n  opacity: .6;\n  font-size: .85em;\n}\n\n.Ah8iqq_chatHead button, .Ah8iqq_chatHead input, .Ah8iqq_chatHead select, .Ah8iqq_chatHead a, .Ah8iqq_chatHead [role=\"menu\"] {\n  -webkit-app-region: no-drag;\n}\n\n.Ah8iqq_text pre, .Ah8iqq_text table {\n  max-width: 100%;\n  overflow-x: auto;\n}\n";document.head.appendChild(s)})();
+(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".OiA4ka_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.OiA4ka_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.OiA4ka_rooms, .OiA4ka_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n.OiA4ka_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.OiA4ka_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.OiA4ka_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.OiA4ka_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.OiA4ka_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.OiA4ka_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.OiA4ka_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.OiA4ka_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.OiA4ka_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.OiA4ka_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.OiA4ka_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.OiA4ka_chatHead {\n  -webkit-app-region: drag;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.OiA4ka_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.OiA4ka_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.OiA4ka_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.OiA4ka_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.OiA4ka_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.OiA4ka_system .OiA4ka_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.OiA4ka_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.OiA4ka_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.OiA4ka_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.OiA4ka_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.OiA4ka_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.OiA4ka_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.OiA4ka_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.OiA4ka_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.OiA4ka_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.OiA4ka_messageBody {\n  min-width: 0;\n}\n\n.OiA4ka_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.OiA4ka_author {\n  font-weight: 600;\n}\n\n.OiA4ka_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.OiA4ka_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.OiA4ka_edited {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.OiA4ka_ownActions {\n  opacity: 0;\n  gap: 8px;\n  margin-left: auto;\n  display: inline-flex;\n}\n\n.OiA4ka_message:hover .OiA4ka_ownActions, .OiA4ka_ownActions:focus-within {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .OiA4ka_ownActions {\n    opacity: 1;\n  }\n}\n\n.OiA4ka_editBox {\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 4px;\n  display: flex;\n}\n\n.OiA4ka_editInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-height: 60px;\n  color: inherit;\n  font: inherit;\n  resize: vertical;\n  padding: 8px;\n}\n\n.OiA4ka_editBar {\n  justify-content: flex-end;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.OiA4ka_editBar .OiA4ka_time {\n  margin-right: auto;\n}\n\n.OiA4ka_text {\n  white-space: normal;\n  overflow-wrap: anywhere;\n}\n\n.OiA4ka_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.OiA4ka_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.OiA4ka_card[data-state=\"retrying\"] {\n  border-left-color: var(--dsw-alias-state-warning-primary, #faa61a);\n}\n\n.OiA4ka_cardButtons {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.OiA4ka_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.OiA4ka_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.OiA4ka_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.OiA4ka_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.OiA4ka_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.OiA4ka_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.OiA4ka_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.OiA4ka_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.OiA4ka_message {\n  position: relative;\n}\n\n.OiA4ka_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.OiA4ka_quoteDeleted {\n  font-style: italic;\n}\n\n.OiA4ka_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.OiA4ka_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n.OiA4ka_message:hover .OiA4ka_replyButton, .OiA4ka_message:focus-within .OiA4ka_replyButton, .OiA4ka_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .OiA4ka_replyButton {\n    opacity: 1;\n  }\n}\n\n.OiA4ka_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.OiA4ka_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.OiA4ka_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.OiA4ka_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.OiA4ka_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.OiA4ka_composerRow {\n  align-items: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.OiA4ka_mentionButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 40px;\n  height: 40px;\n  color: var(--dsw-alias-label-secondary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  cursor: pointer;\n  flex: none;\n  font-size: 18px;\n  font-weight: 600;\n}\n\n.OiA4ka_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.OiA4ka_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.OiA4ka_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.OiA4ka_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.OiA4ka_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.OiA4ka_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.OiA4ka_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.OiA4ka_mentionName {\n  font-weight: 600;\n}\n\n.OiA4ka_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.OiA4ka_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.OiA4ka_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.OiA4ka_input {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 100%;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  padding: 10px 14px;\n}\n\n.OiA4ka_input:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.OiA4ka_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.OiA4ka_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.OiA4ka_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.OiA4ka_offline {\n  opacity: .5;\n}\n\n.OiA4ka_memberAvatar {\n  position: relative;\n}\n\n.OiA4ka_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.OiA4ka_offline .OiA4ka_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.OiA4ka_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.OiA4ka_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.OiA4ka_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .OiA4ka_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .OiA4ka_rooms, .OiA4ka_members {\n    display: none;\n  }\n}\n\n.OiA4ka_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.OiA4ka_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.OiA4ka_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.OiA4ka_roomInput, .OiA4ka_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.OiA4ka_roomInput {\n  margin: 2px 0 6px;\n}\n\n.OiA4ka_roomInput:focus-visible, .OiA4ka_fieldInput:focus-visible, .OiA4ka_iconButton:focus-visible, .OiA4ka_linkButton:focus-visible, .OiA4ka_addMemberButton:focus-visible, .OiA4ka_primaryButton:focus-visible, .OiA4ka_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.OiA4ka_addMemberButton {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.OiA4ka_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.OiA4ka_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.OiA4ka_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.OiA4ka_memberRow .OiA4ka_member:hover {\n  background: none;\n}\n\n.OiA4ka_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.OiA4ka_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.OiA4ka_memberRow:hover .OiA4ka_memberActions, .OiA4ka_memberRow:focus-within .OiA4ka_memberActions {\n  opacity: 1;\n}\n\n.OiA4ka_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.OiA4ka_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.OiA4ka_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.OiA4ka_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.OiA4ka_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.OiA4ka_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.OiA4ka_field textarea {\n  resize: vertical;\n}\n\n.OiA4ka_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.OiA4ka_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.OiA4ka_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.OiA4ka_primaryButton, .OiA4ka_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.OiA4ka_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.OiA4ka_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.OiA4ka_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.OiA4ka_memberFailed .OiA4ka_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.OiA4ka_memberFailed .OiA4ka_presence {\n  background: #ed4245;\n}\n\n.OiA4ka_mobileButton, .OiA4ka_drawerBackdrop {\n  display: none;\n}\n\n.OiA4ka_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.OiA4ka_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.OiA4ka_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.OiA4ka_panelToggleEnd {\n  margin-left: auto;\n}\n\n.OiA4ka_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n.OiA4ka_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.OiA4ka_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n.OiA4ka_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.OiA4ka_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  .OiA4ka_page.OiA4ka_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .OiA4ka_page.OiA4ka_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .OiA4ka_page.OiA4ka_roomsHidden.OiA4ka_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .OiA4ka_roomsHidden > .OiA4ka_rooms, .OiA4ka_membersHidden > .OiA4ka_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .OiA4ka_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .OiA4ka_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .OiA4ka_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .OiA4ka_panelToggle {\n    display: none;\n  }\n\n  .OiA4ka_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .OiA4ka_rooms.OiA4ka_drawerOpen, .OiA4ka_members.OiA4ka_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .OiA4ka_rooms.OiA4ka_drawerOpen {\n    left: 0;\n  }\n\n  .OiA4ka_members.OiA4ka_drawerOpen {\n    right: 0;\n  }\n\n  .OiA4ka_memberActions {\n    opacity: 1;\n  }\n\n  .OiA4ka_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.OiA4ka_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.OiA4ka_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.OiA4ka_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.OiA4ka_taskBoard {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin-bottom: 8px;\n  padding-bottom: 8px;\n}\n\n.OiA4ka_leadControl {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin: 0 0 10px;\n  padding: 0 8px 10px;\n}\n\n.OiA4ka_leadControl .OiA4ka_field {\n  color: var(--dsw-alias-label-tertiary);\n  gap: 5px;\n  font-size: 12px;\n}\n\n.OiA4ka_fieldLabel {\n  color: var(--dsw-alias-label-tertiary);\n  margin-bottom: 5px;\n  font-size: 12px;\n  display: block;\n}\n\n.OiA4ka_leadControl .OiA4ka_fieldInput {\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  text-align: left;\n  cursor: pointer;\n}\n\n.OiA4ka_leadMenu {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  gap: 2px;\n  margin-top: 4px;\n  padding: 4px;\n  display: grid;\n}\n\n.OiA4ka_leadOption {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n}\n\n.OiA4ka_leadOption:hover, .OiA4ka_leadOption[aria-selected=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.OiA4ka_taskSection + .OiA4ka_taskSection {\n  margin-top: 8px;\n}\n\n.OiA4ka_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.OiA4ka_taskOwnerGroup + .OiA4ka_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n.OiA4ka_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n.OiA4ka_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.OiA4ka_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.OiA4ka_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.OiA4ka_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.OiA4ka_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.OiA4ka_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.OiA4ka_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.OiA4ka_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.OiA4ka_taskDone summary {\n  cursor: pointer;\n}\n\n.OiA4ka_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.OiA4ka_taskStatus[data-status=\"asked\"], .OiA4ka_taskStatus[data-status=\"escalated\"], .OiA4ka_taskStatus[data-status=\"declined\"], .OiA4ka_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.OiA4ka_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.OiA4ka_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.OiA4ka_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.OiA4ka_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.OiA4ka_taskMemberName {\n  font-weight: 600;\n}\n\n.OiA4ka_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.OiA4ka_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n\n.OiA4ka_attachments {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 4px 0;\n  display: flex;\n}\n\n.OiA4ka_attachmentImage {\n  border-radius: 4px;\n  max-width: min(320px, 100%);\n  max-height: 240px;\n  display: block;\n}\n\n.OiA4ka_attachmentThumb {\n  object-fit: cover;\n  vertical-align: middle;\n  border-radius: 3px;\n  width: 32px;\n  height: 32px;\n}\n\n.OiA4ka_attachmentFile {\n  background: var(--background-secondary, #7f7f7f26);\n  color: inherit;\n  border-radius: 4px;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 8px;\n  text-decoration: none;\n  display: inline-flex;\n}\n\n.OiA4ka_attachmentSize {\n  opacity: .6;\n  font-size: .85em;\n}\n\n.OiA4ka_attachmentAudio {\n  flex-direction: column;\n  gap: 2px;\n  width: min(320px, 100%);\n  display: flex;\n}\n\n.OiA4ka_attachmentAudio audio {\n  width: 100%;\n}\n\n.OiA4ka_attachmentAudio a {\n  color: inherit;\n  text-decoration: none;\n}\n\n.OiA4ka_attachmentFile {\n  overflow-wrap: anywhere;\n  max-width: 100%;\n}\n\n.OiA4ka_chatHead button, .OiA4ka_chatHead input, .OiA4ka_chatHead select, .OiA4ka_chatHead a, .OiA4ka_chatHead [role=\"menu\"] {\n  -webkit-app-region: no-drag;\n}\n\n.OiA4ka_text pre, .OiA4ka_text table {\n  max-width: 100%;\n  overflow-x: auto;\n}\n";document.head.appendChild(s)})();
 Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 let _deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 let react_jsx_runtime = require("react/jsx-runtime");
 let react = require("react");
+// src/client/uuid.ts
+/**
+* v4 UUID that also works outside a secure context. `crypto.randomUUID` exists only
+* on https/localhost pages, so a channel page opened at a plain-http LAN or Tailscale
+* address has no such method; `crypto.getRandomValues` is available everywhere.
+* Same approach as upstream DSH's `@deepseek-ai/dsh-util-crypto` randomUUID, which is
+* not loadable here because the bundle keeps `@deepseek-ai/*` external.
+* @returns a canonical lowercase v4 UUID string.
+*/
+function randomUUID() {
+	const c = globalThis.crypto;
+	if (typeof c.randomUUID === "function") return c.randomUUID();
+	const bytes = c.getRandomValues(/* @__PURE__ */ new Uint8Array(16));
+	bytes[6] = bytes[6] & 15 | 64;
+	bytes[8] = bytes[8] & 63 | 128;
+	const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+	return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 // src/client/channel-source.ts
 /** Relative URL of a stored attachment (same base as the other collab requests). */
 const attachmentUrl = (id) => `collab/api/attachments/${encodeURIComponent(id)}`;
@@ -16,7 +34,7 @@ const MAX_MESSAGE_BODY = 8388608;
 /** Whether a message with these attachments would exceed the server's body cap (checked before sending). */
 const messageTooLarge = (text, attachments) => new TextEncoder().encode(JSON.stringify({
 	text,
-	client_key: crypto.randomUUID(),
+	client_key: randomUUID(),
 	reply_to: Number.MAX_SAFE_INTEGER,
 	attachments
 })).length > MAX_MESSAGE_BODY;
@@ -515,7 +533,7 @@ function createChannelSource(transport) {
 			async send(text, replyTo, attachments) {
 				const roomId = snapshot.roomId;
 				if (roomId === void 0) throw new Error("No channel is open");
-				await post(roomId, crypto.randomUUID(), text, replyTo, attachments);
+				await post(roomId, randomUUID(), text, replyTo, attachments);
 			},
 			async retrySend(clientKey) {
 				const roomId = snapshot.roomId;
@@ -654,143 +672,145 @@ function ChannelsIcon({ size }) {
 }
 // src/client/ChannelsPage.module.css
 var ChannelsPage_module_default = {
-	"activeBusy": "Ah8iqq_activeBusy",
-	"activeCount": "Ah8iqq_activeCount",
-	"addMemberButton": "Ah8iqq_addMemberButton",
-	"attachmentFile": "Ah8iqq_attachmentFile",
-	"attachmentImage": "Ah8iqq_attachmentImage",
-	"attachments": "Ah8iqq_attachments",
-	"attachmentSize": "Ah8iqq_attachmentSize",
-	"attachmentThumb": "Ah8iqq_attachmentThumb",
-	"author": "Ah8iqq_author",
-	"avatar": "Ah8iqq_avatar",
-	"avatarAnchor": "Ah8iqq_avatarAnchor",
-	"avatarButton": "Ah8iqq_avatarButton",
-	"avatarImage": "Ah8iqq_avatarImage",
-	"avatarMenu": "Ah8iqq_avatarMenu",
-	"avatarMenuItem": "Ah8iqq_avatarMenuItem",
-	"avatarMenuTitle": "Ah8iqq_avatarMenuTitle",
-	"avatarOption": "Ah8iqq_avatarOption",
-	"avatarPicker": "Ah8iqq_avatarPicker",
-	"avatarSmall": "Ah8iqq_avatarSmall",
-	"capabilityHelp": "Ah8iqq_capabilityHelp",
-	"capabilityItem": "Ah8iqq_capabilityItem",
-	"capabilityMenu": "Ah8iqq_capabilityMenu",
-	"card": "Ah8iqq_card",
-	"cardButtons": "Ah8iqq_cardButtons",
-	"cardHead": "Ah8iqq_cardHead",
-	"cardTitle": "Ah8iqq_cardTitle",
-	"cardViewButton": "Ah8iqq_cardViewButton",
-	"cardViews": "Ah8iqq_cardViews",
-	"chat": "Ah8iqq_chat",
-	"chatHead": "Ah8iqq_chatHead",
-	"choice": "Ah8iqq_choice",
-	"choiceRow": "Ah8iqq_choiceRow",
-	"composer": "Ah8iqq_composer",
-	"composerRow": "Ah8iqq_composerRow",
-	"dialog": "Ah8iqq_dialog",
-	"dialogActions": "Ah8iqq_dialogActions",
-	"dialogBackdrop": "Ah8iqq_dialogBackdrop",
-	"dialogTitle": "Ah8iqq_dialogTitle",
-	"drawerBackdrop": "Ah8iqq_drawerBackdrop",
-	"drawerOpen": "Ah8iqq_drawerOpen",
-	"editBar": "Ah8iqq_editBar",
-	"editBox": "Ah8iqq_editBox",
-	"edited": "Ah8iqq_edited",
-	"editInput": "Ah8iqq_editInput",
-	"empty": "Ah8iqq_empty",
-	"field": "Ah8iqq_field",
-	"fieldInput": "Ah8iqq_fieldInput",
-	"fieldLabel": "Ah8iqq_fieldLabel",
-	"focused": "Ah8iqq_focused",
-	"groupHead": "Ah8iqq_groupHead",
-	"groupTitle": "Ah8iqq_groupTitle",
-	"guide": "Ah8iqq_guide",
-	"hash": "Ah8iqq_hash",
-	"iconButton": "Ah8iqq_iconButton",
-	"input": "Ah8iqq_input",
-	"leadControl": "Ah8iqq_leadControl",
-	"leadMenu": "Ah8iqq_leadMenu",
-	"leadOption": "Ah8iqq_leadOption",
-	"linkButton": "Ah8iqq_linkButton",
-	"log": "Ah8iqq_log",
-	"member": "Ah8iqq_member",
-	"memberActions": "Ah8iqq_memberActions",
-	"memberAvatar": "Ah8iqq_memberAvatar",
-	"memberFailed": "Ah8iqq_memberFailed",
-	"memberModel": "Ah8iqq_memberModel",
-	"memberName": "Ah8iqq_memberName",
-	"memberRow": "Ah8iqq_memberRow",
-	"members": "Ah8iqq_members",
-	"membersHidden": "Ah8iqq_membersHidden",
-	"memberStatus": "Ah8iqq_memberStatus",
-	"memberText": "Ah8iqq_memberText",
-	"mentionActive": "Ah8iqq_mentionActive",
-	"mentionButton": "Ah8iqq_mentionButton",
-	"mentionHint": "Ah8iqq_mentionHint",
-	"mentionItem": "Ah8iqq_mentionItem",
-	"mentionMeta": "Ah8iqq_mentionMeta",
-	"mentionName": "Ah8iqq_mentionName",
-	"mentionPopup": "Ah8iqq_mentionPopup",
-	"mentionTitle": "Ah8iqq_mentionTitle",
-	"message": "Ah8iqq_message",
-	"messageBody": "Ah8iqq_messageBody",
-	"messageHead": "Ah8iqq_messageHead",
-	"mobileButton": "Ah8iqq_mobileButton",
-	"notice": "Ah8iqq_notice",
-	"offline": "Ah8iqq_offline",
-	"ownActions": "Ah8iqq_ownActions",
-	"page": "Ah8iqq_page",
-	"panelToggle": "Ah8iqq_panelToggle",
-	"panelToggleEnd": "Ah8iqq_panelToggleEnd",
-	"permActions": "Ah8iqq_permActions",
-	"permScope": "Ah8iqq_permScope",
-	"permStatus": "Ah8iqq_permStatus",
-	"presence": "Ah8iqq_presence",
-	"primaryButton": "Ah8iqq_primaryButton",
-	"quote": "Ah8iqq_quote",
-	"quoteAuthor": "Ah8iqq_quoteAuthor",
-	"quoteDeleted": "Ah8iqq_quoteDeleted",
-	"replyBar": "Ah8iqq_replyBar",
-	"replyBarText": "Ah8iqq_replyBarText",
-	"replyButton": "Ah8iqq_replyButton",
-	"replyCancel": "Ah8iqq_replyCancel",
-	"room": "Ah8iqq_room",
-	"roomActive": "Ah8iqq_roomActive",
-	"roomInput": "Ah8iqq_roomInput",
-	"roomLabel": "Ah8iqq_roomLabel",
-	"rooms": "Ah8iqq_rooms",
-	"roomsHidden": "Ah8iqq_roomsHidden",
-	"secondaryButton": "Ah8iqq_secondaryButton",
-	"sendError": "Ah8iqq_sendError",
-	"system": "Ah8iqq_system",
-	"tag": "Ah8iqq_tag",
-	"taskBoard": "Ah8iqq_taskBoard",
-	"taskCard": "Ah8iqq_taskCard",
-	"taskDone": "Ah8iqq_taskDone",
-	"taskEmpty": "Ah8iqq_taskEmpty",
-	"taskLine": "Ah8iqq_taskLine",
-	"taskLinks": "Ah8iqq_taskLinks",
-	"taskList": "Ah8iqq_taskList",
-	"taskMember": "Ah8iqq_taskMember",
-	"taskMemberName": "Ah8iqq_taskMemberName",
-	"taskMembers": "Ah8iqq_taskMembers",
-	"taskMeta": "Ah8iqq_taskMeta",
-	"taskOwnerGroup": "Ah8iqq_taskOwnerGroup",
-	"taskOwnerName": "Ah8iqq_taskOwnerName",
-	"taskRow": "Ah8iqq_taskRow",
-	"taskSection": "Ah8iqq_taskSection",
-	"taskSectionTitle": "Ah8iqq_taskSectionTitle",
-	"taskStatus": "Ah8iqq_taskStatus",
-	"taskSub": "Ah8iqq_taskSub",
-	"taskTitle": "Ah8iqq_taskTitle",
-	"text": "Ah8iqq_text",
-	"time": "Ah8iqq_time",
-	"working": "Ah8iqq_working",
-	"workspace": "Ah8iqq_workspace"
+	"activeBusy": "OiA4ka_activeBusy",
+	"activeCount": "OiA4ka_activeCount",
+	"addMemberButton": "OiA4ka_addMemberButton",
+	"attachmentAudio": "OiA4ka_attachmentAudio",
+	"attachmentFile": "OiA4ka_attachmentFile",
+	"attachmentImage": "OiA4ka_attachmentImage",
+	"attachments": "OiA4ka_attachments",
+	"attachmentSize": "OiA4ka_attachmentSize",
+	"attachmentThumb": "OiA4ka_attachmentThumb",
+	"author": "OiA4ka_author",
+	"avatar": "OiA4ka_avatar",
+	"avatarAnchor": "OiA4ka_avatarAnchor",
+	"avatarButton": "OiA4ka_avatarButton",
+	"avatarImage": "OiA4ka_avatarImage",
+	"avatarMenu": "OiA4ka_avatarMenu",
+	"avatarMenuItem": "OiA4ka_avatarMenuItem",
+	"avatarMenuTitle": "OiA4ka_avatarMenuTitle",
+	"avatarOption": "OiA4ka_avatarOption",
+	"avatarPicker": "OiA4ka_avatarPicker",
+	"avatarSmall": "OiA4ka_avatarSmall",
+	"capabilityHelp": "OiA4ka_capabilityHelp",
+	"capabilityItem": "OiA4ka_capabilityItem",
+	"capabilityMenu": "OiA4ka_capabilityMenu",
+	"card": "OiA4ka_card",
+	"cardButtons": "OiA4ka_cardButtons",
+	"cardHead": "OiA4ka_cardHead",
+	"cardTitle": "OiA4ka_cardTitle",
+	"cardViewButton": "OiA4ka_cardViewButton",
+	"cardViews": "OiA4ka_cardViews",
+	"chat": "OiA4ka_chat",
+	"chatHead": "OiA4ka_chatHead",
+	"choice": "OiA4ka_choice",
+	"choiceRow": "OiA4ka_choiceRow",
+	"composer": "OiA4ka_composer",
+	"composerRow": "OiA4ka_composerRow",
+	"dialog": "OiA4ka_dialog",
+	"dialogActions": "OiA4ka_dialogActions",
+	"dialogBackdrop": "OiA4ka_dialogBackdrop",
+	"dialogTitle": "OiA4ka_dialogTitle",
+	"drawerBackdrop": "OiA4ka_drawerBackdrop",
+	"drawerOpen": "OiA4ka_drawerOpen",
+	"editBar": "OiA4ka_editBar",
+	"editBox": "OiA4ka_editBox",
+	"edited": "OiA4ka_edited",
+	"editInput": "OiA4ka_editInput",
+	"empty": "OiA4ka_empty",
+	"field": "OiA4ka_field",
+	"fieldInput": "OiA4ka_fieldInput",
+	"fieldLabel": "OiA4ka_fieldLabel",
+	"focused": "OiA4ka_focused",
+	"groupHead": "OiA4ka_groupHead",
+	"groupTitle": "OiA4ka_groupTitle",
+	"guide": "OiA4ka_guide",
+	"hash": "OiA4ka_hash",
+	"iconButton": "OiA4ka_iconButton",
+	"input": "OiA4ka_input",
+	"leadControl": "OiA4ka_leadControl",
+	"leadMenu": "OiA4ka_leadMenu",
+	"leadOption": "OiA4ka_leadOption",
+	"linkButton": "OiA4ka_linkButton",
+	"log": "OiA4ka_log",
+	"member": "OiA4ka_member",
+	"memberActions": "OiA4ka_memberActions",
+	"memberAvatar": "OiA4ka_memberAvatar",
+	"memberFailed": "OiA4ka_memberFailed",
+	"memberModel": "OiA4ka_memberModel",
+	"memberName": "OiA4ka_memberName",
+	"memberRow": "OiA4ka_memberRow",
+	"members": "OiA4ka_members",
+	"membersHidden": "OiA4ka_membersHidden",
+	"memberStatus": "OiA4ka_memberStatus",
+	"memberText": "OiA4ka_memberText",
+	"mentionActive": "OiA4ka_mentionActive",
+	"mentionButton": "OiA4ka_mentionButton",
+	"mentionHint": "OiA4ka_mentionHint",
+	"mentionItem": "OiA4ka_mentionItem",
+	"mentionMeta": "OiA4ka_mentionMeta",
+	"mentionName": "OiA4ka_mentionName",
+	"mentionPopup": "OiA4ka_mentionPopup",
+	"mentionTitle": "OiA4ka_mentionTitle",
+	"message": "OiA4ka_message",
+	"messageBody": "OiA4ka_messageBody",
+	"messageHead": "OiA4ka_messageHead",
+	"mobileButton": "OiA4ka_mobileButton",
+	"notice": "OiA4ka_notice",
+	"offline": "OiA4ka_offline",
+	"ownActions": "OiA4ka_ownActions",
+	"page": "OiA4ka_page",
+	"panelToggle": "OiA4ka_panelToggle",
+	"panelToggleEnd": "OiA4ka_panelToggleEnd",
+	"permActions": "OiA4ka_permActions",
+	"permScope": "OiA4ka_permScope",
+	"permStatus": "OiA4ka_permStatus",
+	"presence": "OiA4ka_presence",
+	"primaryButton": "OiA4ka_primaryButton",
+	"quote": "OiA4ka_quote",
+	"quoteAuthor": "OiA4ka_quoteAuthor",
+	"quoteDeleted": "OiA4ka_quoteDeleted",
+	"replyBar": "OiA4ka_replyBar",
+	"replyBarText": "OiA4ka_replyBarText",
+	"replyButton": "OiA4ka_replyButton",
+	"replyCancel": "OiA4ka_replyCancel",
+	"room": "OiA4ka_room",
+	"roomActive": "OiA4ka_roomActive",
+	"roomInput": "OiA4ka_roomInput",
+	"roomLabel": "OiA4ka_roomLabel",
+	"rooms": "OiA4ka_rooms",
+	"roomsHidden": "OiA4ka_roomsHidden",
+	"secondaryButton": "OiA4ka_secondaryButton",
+	"sendError": "OiA4ka_sendError",
+	"system": "OiA4ka_system",
+	"tag": "OiA4ka_tag",
+	"taskBoard": "OiA4ka_taskBoard",
+	"taskCard": "OiA4ka_taskCard",
+	"taskDone": "OiA4ka_taskDone",
+	"taskEmpty": "OiA4ka_taskEmpty",
+	"taskLine": "OiA4ka_taskLine",
+	"taskLinks": "OiA4ka_taskLinks",
+	"taskList": "OiA4ka_taskList",
+	"taskMember": "OiA4ka_taskMember",
+	"taskMemberName": "OiA4ka_taskMemberName",
+	"taskMembers": "OiA4ka_taskMembers",
+	"taskMeta": "OiA4ka_taskMeta",
+	"taskOwnerGroup": "OiA4ka_taskOwnerGroup",
+	"taskOwnerName": "OiA4ka_taskOwnerName",
+	"taskRow": "OiA4ka_taskRow",
+	"taskSection": "OiA4ka_taskSection",
+	"taskSectionTitle": "OiA4ka_taskSectionTitle",
+	"taskStatus": "OiA4ka_taskStatus",
+	"taskSub": "OiA4ka_taskSub",
+	"taskTitle": "OiA4ka_taskTitle",
+	"text": "OiA4ka_text",
+	"time": "OiA4ka_time",
+	"working": "OiA4ka_working",
+	"workspace": "OiA4ka_workspace"
 };
 // src/client/Attachments.tsx
 const isImage = (mime) => /^image\/(png|jpeg|gif|webp)$/.test(mime);
+const isAudio = (mime) => mime.startsWith("audio/");
 const size = (bytes) => bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 /** Thumbnails for images, a download card for other files. */
 function AttachmentList({ attachments }) {
@@ -808,6 +828,23 @@ function AttachmentList({ attachments }) {
 				alt: a.name,
 				loading: "lazy"
 			})
+		}, a.id) : isAudio(a.mime) ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+			className: ChannelsPage_module_default.attachmentAudio,
+			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("audio", {
+				controls: true,
+				preload: "metadata",
+				src: attachmentUrl(a.id),
+				title: a.name
+			}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("a", {
+				className: ChannelsPage_module_default.attachmentSize,
+				href: attachmentUrl(a.id),
+				download: a.name,
+				children: [
+					a.name,
+					" · ",
+					size(a.size)
+				]
+			})]
 		}, a.id) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("a", {
 			className: ChannelsPage_module_default.attachmentFile,
 			href: attachmentUrl(a.id),
@@ -2041,7 +2078,7 @@ function MemberGroup({ title, members, busy, onPick, onEdit, onRemove, t }) {
 * @param props - framework, injected, and locale shares.
 * @returns the three-column channel view.
 */
-function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, renderSlot, t }) {
+function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, listClis, addMember, updateMember, removeMember, setLead, setDispatchMode, decidePermission, retryMessage, editMessage, withdrawMessage, t }) {
 	const state = useChannels((snapshot) => snapshot);
 	const [editing, setEditing] = (0, react.useState)(void 0);
 	const [ownNotice, setOwnNotice] = (0, react.useState)(void 0);
@@ -2909,9 +2946,7 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 							setModelsOpen(false);
 						},
 						children: t("close")
-					}), renderSlot("settings.section", { close: () => {
-						setModelsOpen(false);
-					} }, { only: "models" })]
+					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", { children: t("configureModelHint") })]
 				})
 			}),
 			dialog !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(MemberDialog, {
@@ -2948,7 +2983,7 @@ const zh = {
 	capabilityLaterHelp: "告诉角色何时回来、回来做什么，例如「十分钟后回来检查测试结果」。",
 	capabilityReminderHelp: "通过任务分发派出的任务，到点会自动催办一次；负责人交回结果或说明卡在哪里。",
 	capabilityWorkspaceHelp: "在聊天频道把任务交给角色，需要时由角色创建工作区。工作区的问题和阶段结果会送回聊天频道。",
-	capabilityLeadHelp: "在成员栏的「谁当主」里选择角色。切换后，没有点名的消息由新的主角色接收。",
+	capabilityLeadHelp: "在成员栏的「主角色」里选择角色。切换后，没有点名的消息由新的主角色接收。",
 	capabilityDmHelp: "在支持私信的平台打开与角色的私聊。角色也可向配置中的用户发送私信；DSH 频道页目前没有私信入口。",
 	taskBoard: "任务板",
 	taskBoardTitle: "任务板 — 进行中 {count}",
@@ -2974,12 +3009,13 @@ const zh = {
 	dispatchSolo: "单模型多进程 — 同一模型分开处理任务",
 	dispatchTeam: "完全团队 — 交给团队成员协作",
 	dispatchMixed: "混合 — 按任务选择模型与成员",
-	lead: "谁当主",
+	lead: "主角色",
 	leadNone: "未选择（按原配置）",
 	durSeconds: "{n} 秒",
 	durMinutes: "{n} 分钟",
 	durHours: "{h} 小时 {m} 分",
 	configureModel: "去配置模型",
+	configureModelHint: "模型在「设置 → 模型」里配置：点侧栏底部的设置入口，桌面版也可按 ⌘,（Windows/Linux 为 Ctrl+,）。",
 	retry: "重试",
 	retrying: "重试中…",
 	permAllowed: "已允许",
@@ -3121,6 +3157,7 @@ const en = {
 	capabilityLeadHelp: "Choose a role under Primary role in the members panel. Messages without an explicit addressee then go to the new primary role.",
 	capabilityDmHelp: "Open a private conversation with a role on a supported platform. Roles can also message the configured owner. The DSH Channels page currently has no private-chat entry.",
 	configureModel: "Configure model",
+	configureModelHint: "Models are configured in Settings → Models: use the settings entry at the bottom of the sidebar, or press ⌘, in the desktop app (Ctrl+, on Windows/Linux).",
 	retry: "Retry",
 	retrying: "Retrying…",
 	permAllowed: "Allowed",
@@ -3258,11 +3295,7 @@ function apply(ctx) {
 			name: "main",
 			key: PANEL_ID,
 			locale: NS,
-			inject: injected,
-			children: { "settings.section": {
-				kind: "list",
-				scope: "root"
-			} }
+			inject: injected
 		}, ChannelsPage);
 		if (location.hash === `#${PANEL_ID}`) ctx.layout.selectPanel(PANEL_ID);
 		return dispose;

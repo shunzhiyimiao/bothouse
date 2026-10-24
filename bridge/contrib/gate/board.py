@@ -17,7 +17,9 @@
   board update <编号> <状态> [分支/PR/路径] [谁] [--next 几点看]
   board done <编号> [返工次数 [原因]]      # 结束：移出任务板，记进 board-done.jsonl
   board rework [天数]                    # 最近 14 天的返工次数和原因
-  board pause <编号> [原因]               # 暂停：留在板上、卡片单列「暂停」块，不算做完、不进 board-done.jsonl
+  board pause <编号> [原因]               # 暂停：留在板上、卡片单列「暂停」块，不算做完、不进 board-done.jsonl；
+                                         #   条目在工作区里时同时 <桥> workspace park：那里没别的活就放回池子、清会话
+                                         #   （恢复后重新 ws-handoff，先复用空着的工作区，不保证回原号）
   board resume <编号>                     # 恢复：回到「在做」
   board link <编号> <卡片链接>             # 给这件事挂一张公开任务卡（Discord 消息链接），卡片那行末尾出「[卡](链接)」
   board refresh                          # 只重画所有已有的置顶卡（让「已过」到点就出现，可由定时调用）
@@ -37,6 +39,7 @@
 """
 import fcntl, json, os, re, shutil, subprocess, sys, time, urllib.error, urllib.request
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 SETUP = Path(os.environ.get("GATE_SETUP_DIR") or Path.home() / ".cc-connect").expanduser()
@@ -115,7 +118,23 @@ def _deadline(hhmm, ref=None):
     return int(ts + 86400 if ts < ref - NEXT_GRACE else ts)
 
 
-def add(what, where, status, who, nxt=None):
+def _bound_now():
+    """条目绑上工作区的时刻（RFC 3339，UTC）：桥里那件交接（claim 时记的）早于它，同一聊天频道之后再交的晚于它；
+    park 时带上，桥只放这一件（core ParkTeamWorkspaceFor）。"""
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _back_to_chat(it):
+    """条目离开工作区（暂停、「谁」改走）：工作区随后放回池子、可能归别的聊天频道，条目的卡片频道 ch 改回交活的
+    聊天频道，免得从原聊天频道的置顶卡上消失、又出现在后来领走工作区的频道卡上（审查 pr261-code.md 第 2 条）。"""
+    chat = it.get("chat") or ""
+    if chat.startswith("discord:") and chat.split(":", 1)[1].isdigit():
+        it["ch"] = chat.split(":", 1)[1]
+
+
+def add(what, where, status, who, nxt=None, ws=None, chat=None):
+    """ws：ws-handoff 交活时建的条目绑到这个工作区（<平台>:<id>，桥里那一件交接）；pause、把「谁」改走时放掉那一件。
+    chat：交活的聊天频道（<平台>:<id>），恢复/改回工作区时按它向桥收回占用（reoccupy）。"""
     with _locked():
         cur = _read()
         nid = max([i["id"] for i in cur + _read("board-done.jsonl")] + [0]) + 1
@@ -124,6 +143,17 @@ def add(what, where, status, who, nxt=None):
             it["next"], it["next_ts"] = nxt, _deadline(nxt)
         if _cur_channel():
             it["ch"] = _cur_channel()
+        sk = os.environ.get("CC_SESSION_KEY") or os.environ.get("CC_SESSION", "")
+        if ":" in sk:  # 完整会话 key（飞书、DSH、网页版也有），pause 时按它找工作区
+            it["sk"] = ":".join(sk.split(":", 2)[:2])
+        if ws:
+            it["ws"] = it["sk"] = ws
+            it["bound"] = _bound_now()
+            if chat and ":" in chat:
+                it["chat"] = ":".join(chat.split(":", 2)[:2])
+            it.pop("ch", None)
+            if ws.startswith("discord:"):
+                it["ch"] = ws.split(":", 1)[1]
         cur.append(it)
         _write(cur)
     return nid
@@ -135,7 +165,11 @@ def update(nid, status, where=None, who=None, nxt=None):
         hit = next((i for i in cur if i["id"] == nid), None)
         if hit is None:
             return False
+        before = dict(hit)
         hit["status"], hit["at"] = status, _now()
+        if who and hit.get("ws") and who != before.get("who"):
+            hit["ws_was"] = hit.pop("ws")  # 「谁」改走：这件不再算在那个工作区（main 里 park 掉它的交接）
+            _back_to_chat(hit)
         if where:
             hit["where"] = where
         if who:
@@ -145,7 +179,7 @@ def update(nid, status, where=None, who=None, nxt=None):
         if not hit.get("ch") and _cur_channel():
             hit["ch"] = _cur_channel()
         _write(cur)
-    return True
+    return before
 
 
 CARD_RE = re.compile(r"https://discord\.com/channels/\d+/\d+/\d+")  # Discord 消息链接：/channels/<服务器>/<频道>/<消息>
@@ -172,12 +206,111 @@ def pause(nid, why=None):
         if hit is None:
             return False
         hit["paused"] = hit["at"] = _now()
+        ws = hit.pop("ws", None)  # 交接已放回桥（main 里 park）；ws_was 留着，resume 时向桥收回（reoccupy）
+        if ws:
+            hit["ws_was"] = ws
+            _back_to_chat(hit)
         if why:
             hit["pause_why"] = why
         else:
             hit.pop("pause_why", None)
         _write(cur)
-    return True
+    return {**hit, "ws": ws} if ws else hit
+
+
+def _ws_key(it):
+    """条目所在频道的会话 key（<平台>:<id>）：add 时记的 sk，老条目退回 discord:<ch>。"""
+    return it.get("sk") or (f"discord:{it['ch']}" if it.get("ch") else "")
+
+
+def _park_once(cc, sk, chat, bound=None):
+    """<桥> workspace park 一次，只放 chat 交的那一件（绑定时刻 bound 及以前最新的那件）：工作区眼下不归 chat、
+    或那件早已收尾（工作区做完放回、又被别人或 chat 自己的新活领走）时桥拒绝（not owned），什么都不动。
+    True 放回了 / False 那里还有活 / None 不在工作区、不归它、早已放回或失败（失败写 stderr）。"""
+    args = [cc, "workspace", "park", "--session-key", sk, "--chat", chat]
+    if bound:
+        args += ["--before", bound]
+    try:
+        p = subprocess.run(args + ["--json"],
+                           capture_output=True, text=True, timeout=WS_TIMEOUT)
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"board: 工作区没放回（{e}），pause 照常记", file=sys.stderr)
+        return None
+    if p.returncode != 0:
+        if "not owned" not in p.stderr:  # 不在工作区里（聊天频道）或工作区早已空：不用放
+            print(f"board: 工作区没放回（{p.stderr.strip()[:200]}），pause 照常记", file=sys.stderr)
+        return None
+    try:
+        return bool(json.loads(p.stdout).get("freed"))
+    except ValueError:
+        return None
+
+
+def park_workspace(it):
+    """暂停即放回（用户同意的「停着的活挪到待办列表」）：条目是 ws-handoff 交活时建、绑了工作区的（it["ws"]），
+    <桥> workspace park 放掉它在那里的那一件交接；那里没别的活在做，桥就把工作区放回池子并清掉会话
+    （core/team_workspace.go ParkTeamWorkspace）。只按绑定的条目放：没绑的（在工作区里手动 add 的）不动桥，
+    免得把刚交、还没上板的活一起放掉、串频道（审查 ~/.claude/reviews/ws-stale-local-code.md 第二轮）。
+    返回 True 放回了 / False 还有别的活留着 / None 没绑工作区、没桥或失败（失败写 stderr，不拦 pause）。"""
+    cc = _cc_bin()
+    if not it.get("ws") or not cc or not it.get("chat"):
+        return None  # 没记交活的聊天频道：认不出工作区眼下是不是还在做这件，不放（宁可多占，不停别人的活）
+    return _park_once(cc, it["ws"], it["chat"], it.get("bound"))
+
+
+WS_NAME_RE = re.compile(r"^(工作区\d+)")  # 「谁」= 工作区名 + 主角色名（ws-handoff 写的 f"{name}{lead_name}"）
+
+
+def _ws_id_by_name(cc, chat, name):
+    """chat 所在分类的共享池里叫 name 的工作区 → <平台>:<id>；问不到返回 None。"""
+    try:
+        p = subprocess.run([cc, "workspace", "list", "--session-key", chat, "--json"],
+                           capture_output=True, text=True, timeout=WS_TIMEOUT)
+        pool = json.loads(p.stdout).get("pool") or [] if p.returncode == 0 else []
+    except (OSError, subprocess.SubprocessError, ValueError, AttributeError):
+        return None
+    plat = chat.split(":", 1)[0]
+    return next((f"{plat}:{w['id']}" for w in pool if isinstance(w, dict) and w.get("name") == name and w.get("id")), None)
+
+
+def reoccupy(it, ws):
+    """暂停或把「谁」改走时工作区已放回池子（park），可能已被别的聊天频道领走；这时恢复，工作区会同时归两个聊天频道、
+    上报串到后来的频道。所以 resume / 把「谁」改回工作区之前，先以交活的聊天频道（it["chat"]）向桥认领它
+    （<桥> workspace claim，core ClaimTeamWorkspace：归别的聊天频道就拒绝，没被领走就记回原聊天频道、加一件在做的交接）。
+    返回 None 可以继续（已收回，或条目没记聊天频道、没桥：不涉及桥）/ 字符串：拒绝的原因，板子不改。"""
+    cc, chat = _cc_bin(), it.get("chat")
+    if not cc or not chat or not ws:
+        return None
+    try:
+        p = subprocess.run([cc, "workspace", "claim", ws.split(":", 1)[-1], "--session-key", chat],
+                           capture_output=True, text=True, timeout=WS_TIMEOUT)
+    except (OSError, subprocess.SubprocessError) as e:
+        return f"问不到桥这个工作区眼下归谁（{e}）"
+    if p.returncode != 0:
+        err = (p.stderr.strip() or p.stdout.strip())[:200]
+        if "another chat channel" in err or "workspace-owned" in err:
+            return f"工作区暂停后被别的聊天频道领走了（{err}）"
+        return f"向桥收回工作区失败（{err}）"
+    return None
+
+
+def _refuse(nid, why):
+    sys.exit(f"#{nid} 不能回到原工作区：{why}，板子没改。把「谁」改成「待接手」（board update {nid} <状态> \"\" 待接手），"
+             f"或用 ws-handoff 另交一个工作区")
+
+
+def rebind(nid, ws):
+    """reoccupy 收回后，条目重新绑上工作区（之后 pause / 改走会再放回）。"""
+    with _locked():
+        cur = _read()
+        hit = next((i for i in cur if i["id"] == nid), None)
+        if hit is not None:
+            hit["ws"] = hit["sk"] = ws
+            hit["bound"] = _bound_now()  # reoccupy 刚 claim 了一件新交接
+            hit.pop("ws_was", None)
+            if ws.startswith("discord:"):
+                hit["ch"] = ws.split(":", 1)[1]
+            _write(cur)
 
 
 def resume(nid):
@@ -527,9 +660,24 @@ def main(argv):
             refresh({_chan_of(nid), _cur_channel()})
         elif cmd == "update" and 3 <= len(argv) <= 5:
             nid = int(argv[1].lstrip("#"))
-            if not update(nid, argv[2], *argv[3:5], nxt=nxt):
+            cur = next((i for i in items() if i["id"] == nid), None)
+            m = WS_NAME_RE.match(argv[4]) if len(argv) > 4 and argv[4] else None
+            back = None  # 「谁」改回某个工作区（不是它眼下绑的那个）：先向桥收回，归别人就拒绝
+            if cur and m and not cur.get("paused") and argv[4] != cur.get("who") and cur.get("chat") and _cc_bin():
+                back = _ws_id_by_name(_cc_bin(), cur["chat"], m.group(1))
+                why = reoccupy(cur, back) if back else None
+                if why:
+                    _refuse(nid, why)
+            before = update(nid, argv[2], *argv[3:5], nxt=nxt)
+            if before and back:
+                rebind(nid, back)
+            if not before:
                 sys.exit(f"没有 #{argv[1].lstrip('#')}，先跑 board 看编号")
             print("已更新")
+            if before.get("ws") and not any(i["id"] == nid and i.get("ws") == before["ws"] for i in items()):
+                freed = park_workspace(before)  # 「谁」改走了：它在工作区的那件交接放回桥
+                if freed:
+                    print("工作区已放回池子，会话已清")
             refresh({_chan_of(nid), _cur_channel()})
         elif cmd == "done" and 2 <= len(argv) <= 4:
             nid = int(argv[1].lstrip("#"))
@@ -545,13 +693,24 @@ def main(argv):
                 print(hint)
         elif cmd == "pause" and 2 <= len(argv) <= 3:
             nid = int(argv[1].lstrip("#"))
-            if not pause(nid, argv[2] if len(argv) > 2 else None):
+            hit = pause(nid, argv[2] if len(argv) > 2 else None)
+            if not hit:
                 sys.exit(f"没有 #{nid}，先跑 board 看编号")
             print("已暂停")
+            freed = park_workspace(hit)
+            if freed is not None:
+                print("工作区已放回池子，会话已清" if freed else "工作区里还有别的活，先不放回")
             refresh({_chan_of(nid), _cur_channel()})
         elif cmd == "resume" and len(argv) == 2:
             nid = int(argv[1].lstrip("#"))
+            cur = next((i for i in items() if i["id"] == nid), None)
+            back = cur.get("ws_was") if cur and cur.get("paused") and WS_NAME_RE.match(cur.get("who") or "") else None
+            why = reoccupy(cur, back) if back else None
+            if why:
+                _refuse(nid, why)
             r = resume(nid)
+            if r and back and cur.get("chat") and _cc_bin():
+                rebind(nid, back)
             if r is None:
                 sys.exit(f"没有 #{nid}，先跑 board 看编号")
             print("已恢复" if r else f"#{nid} 没在暂停")

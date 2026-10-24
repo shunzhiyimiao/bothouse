@@ -663,7 +663,7 @@ func (p ProjectConfig) PublicProgressEnabled() bool {
 
 // GateLocalEnabled reports whether the built-in busy rules are on (gate_local; unset = on, user
 // 2026-10-23 「默认打开」). They only act while gate_url is empty.
-// TeamWorkspacesEnabled reports team mode D (default on; only acts on the team lead).
+// TeamWorkspacesEnabled reports team mode D (default on; only acts on the primary role).
 func (p ProjectConfig) TeamWorkspacesEnabled() bool {
 	return p.TeamWorkspaces == nil || *p.TeamWorkspaces
 }
@@ -3776,13 +3776,16 @@ func RemoveProject(projectName string) error {
 	found := false
 	for i := range cfg.Projects {
 		if cfg.Projects[i].Name == projectName {
+			if len(cfg.Projects) == 1 {
+				return fmt.Errorf("project %q: %w", projectName, core.ErrLastProject)
+			}
 			cfg.Projects = append(cfg.Projects[:i], cfg.Projects[i+1:]...)
 			found = true
 			break
 		}
 	}
 	if !found {
-		return fmt.Errorf("project %q not found", projectName)
+		return fmt.Errorf("project %q: %w", projectName, core.ErrProjectNotFound)
 	}
 	return saveConfig(cfg)
 }

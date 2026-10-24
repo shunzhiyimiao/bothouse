@@ -52,11 +52,14 @@ type ManagementServer struct {
 	timerScheduler     *TimerScheduler
 	heartbeatScheduler *HeartbeatScheduler
 	bridgeServer       *BridgeServer
+	dshProxyOnce       sync.Once
+	dshProxy           *dshProxy // /dsh/ channels-page proxy (management_dsh_proxy.go)
 
 	setupFeishuSave      func(req FeishuSetupSaveRequest) error
 	setupWeixinSave      func(req WeixinSetupSaveRequest) error
 	addPlatformToProject func(projectName, platType string, opts map[string]any, workDir, agentType string) error
 	hotLoad              func() HotLoadResult // starts the projects in config.toml that are not running yet
+	hotRemove            func(name string) error // stops a running project removed from config.toml
 	removeProject        func(projectName string) error
 	saveProjectSettings  func(projectName string, update ProjectSettingsUpdate) error
 	getProjectConfig     func(projectName string) map[string]any
@@ -133,6 +136,19 @@ type HotLoadResult struct {
 // config.toml while the service runs (cmd/cc-connect projectRuntime.HotLoad).
 func (m *ManagementServer) SetHotLoadFunc(fn func() HotLoadResult) {
 	m.hotLoad = fn
+}
+
+// Errors a project remover (SetRemoveProject) wraps so DELETE /projects/{name} answers 404 / 409.
+var (
+	ErrProjectNotFound = errors.New("project not found")
+	// a config without [[projects]] fails to load, so the service would not start again
+	ErrLastProject = errors.New("the last project cannot be removed: config.toml needs at least one [[projects]] entry")
+)
+
+// SetHotRemoveFunc wires DELETE /projects/{name} to stop the removed project without a restart
+// (cmd/cc-connect projectRuntime.HotRemove).
+func (m *ManagementServer) SetHotRemoveFunc(fn func(name string) error) {
+	m.hotRemove = fn
 }
 
 func (m *ManagementServer) SetAddPlatformToProject(fn func(string, string, map[string]any, string, string) error) {
@@ -253,6 +269,7 @@ func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	mux.HandleFunc(prefix+"/usage/", m.wrap(m.handleUsage))
 
 	// System
+	mux.HandleFunc(prefix+"/version", m.handlePublicVersion)
 	mux.HandleFunc(prefix+"/status", m.wrap(m.handleStatus))
 	mux.HandleFunc(prefix+"/restart", m.wrap(m.handleRestart))
 	mux.HandleFunc(prefix+"/update", m.wrap(m.handleUpdate))
@@ -346,6 +363,10 @@ func (m *ManagementServer) Stop() {
 // files, falling back to index.html for SPA routing.
 func (m *ManagementServer) withStaticFallback(apiMux *http.ServeMux) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == dshProxyPrefix || strings.HasPrefix(r.URL.Path, dshProxyPrefix+"/") {
+			m.handleDSHProxy(w, r)
+			return
+		}
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			apiMux.ServeHTTP(w, r)
 			return
@@ -952,13 +973,32 @@ func (m *ManagementServer) handleProjectDetail(w http.ResponseWriter, r *http.Re
 			return
 		}
 		if err := m.removeProject(name); err != nil {
-			mgmtError(w, http.StatusInternalServerError, err.Error())
+			status := http.StatusInternalServerError
+			switch {
+			case errors.Is(err, ErrProjectNotFound):
+				status = http.StatusNotFound
+			case errors.Is(err, ErrLastProject):
+				status = http.StatusConflict
+			}
+			mgmtError(w, status, err.Error())
 			return
 		}
-		mgmtJSON(w, http.StatusOK, map[string]any{
+		resp := map[string]any{
 			"message":          fmt.Sprintf("project %q removed from config", name),
 			"restart_required": true,
-		})
+		}
+		if m.hotRemove != nil {
+			hl := HotLoadResult{Added: []string{}}
+			if err := m.hotRemove(name); err != nil {
+				hl.Error = err.Error()
+				slog.Warn("management: removed project still needs a restart", "project", name, "error", err)
+			} else {
+				hl.Removed = []string{name}
+				resp["restart_required"] = false
+			}
+			resp["hot_load"] = hl
+		}
+		mgmtJSON(w, http.StatusOK, resp)
 		return
 	}
 

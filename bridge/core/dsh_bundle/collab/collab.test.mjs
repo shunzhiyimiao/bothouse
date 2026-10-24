@@ -445,6 +445,57 @@ test('DSH member: a reply that @s a cloud-web bot is forwarded to it', async () 
   assert.equal(frame.content, '【DeepSeek】请跑一下 go test');
 });
 
+test('DSH member: the answer to the lead\'s dispatch starts with @lead and wakes it', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }, { id: 'coder', name: 'Coder' }]);
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const ju = connect(gw, 'bot=ju&name=橘');
+  let lead = 'ju';
+  hub.leadState = { selected: () => lead };
+
+  // A cloud-web lead dispatches; the member forgets to @ it back.
+  hub.post(1, { authorKind: 'role', author: 'ju', name: '橘', text: '@DeepSeek 跑一下 go test' });
+  await settle();
+  const ds = dsh.sessions.get(dsh.made[0]);
+  dsh.turn(ds, ['测试全过']);
+  await settle();
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '@橘 测试全过');
+  const frame = ju.of('message').at(-1);
+  assert.equal(frame.mentioned, true);
+  assert.equal(frame.content, '【DeepSeek】测试全过');
+
+  // Already @-ed: unchanged. A person's @ to the member alone: no lead wake.
+  hub.post(1, { authorKind: 'role', author: 'ju', name: '橘', text: '@DeepSeek 再看看' });
+  await settle();
+  dsh.turn(ds, ['@橘 看完了']);
+  await settle();
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '@橘 看完了');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 你好' });
+  await settle();
+  dsh.turn(ds, ['你好']);
+  await settle();
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '你好');
+
+  // A person @-s the member and the lead together: the answer returns to the lead.
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@橘 @DeepSeek 一起看下' });
+  await settle();
+  dsh.turn(ds, ['看了']);
+  await settle();
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '@橘 看了');
+
+  // A DSH member as lead: the hand-back starts the lead's own job.
+  lead = 'ds';
+  hub.post(1, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '@Coder 改一下' });
+  await settle();
+  const coder = dsh.sessions.get(dsh.made[1]);
+  dsh.turn(coder, ['改好了']);
+  await settle();
+  const back = hub.store.page(1, undefined, 1)[0];
+  assert.equal(back.text, '@DeepSeek 改好了');
+  assert.ok(hub.store.openJobs().some(j => j.member_id === 'ds' && j.trigger_id === back.id));
+});
+
 test('DSH member: a discarded input ends its job and frees the queue', async () => {
   const hub = makeHub();
   const dsh = fakeDsh();
@@ -2037,6 +2088,88 @@ test('team exit: asks and reports go to the chat channel that owns the workspace
   assert.deepEqual(ju.of('team_workspace_ack').at(-1), { type: 'team_workspace_ack', ref_id: 'c3', ok: false, error: 'not-workspace' });
 });
 
+test('team workspace park: paused tasks stop counting, the workspace goes back to the pool and is reused before a new one', async () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(2, 'dev');
+  const ws = hub.store.createWorkspace(1); // general owns 工作区1
+  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
+  gw.tasks = tasks;
+  const ju = connect(gw, 'bot=ju&name=橘');
+  const t1 = tasks.assign({ roomId: ws.id, title: '停在干净点的活', owner: 'ds', actor: 'ju' });
+  tasks.stance(t1.id, { actor: 'ds', stance: 'ask', note: '等用户反馈' }); // asked: still in work
+  // A plain release is refused while a task is in work (unchanged).
+  ju.frame({ type: 'team_workspace', ref_id: 'r1', op: 'release', reply_ctx: roomKey(ws.id) });
+  await tick();
+  assert.deepEqual(ju.of('team_workspace_ack').at(-1), { type: 'team_workspace_ack', ref_id: 'r1', ok: false, error: 'busy' });
+  // A stale claim pauses nothing.
+  ju.frame({ type: 'team_workspace', ref_id: 'p0', op: 'release', park: true, claim: '999', reply_ctx: roomKey(ws.id) });
+  await tick();
+  assert.equal(ju.of('team_workspace_ack').at(-1).error, 'stale-claim');
+  assert.equal(tasks.countActive(ws.id), 1);
+  // park: the task is paused (not counted), the workspace is free.
+  ju.frame({ type: 'team_workspace', ref_id: 'p1', op: 'release', park: true, claim: hub.store.claimId(ws.id), reply_ctx: roomKey(ws.id) });
+  await tick();
+  assert.equal(ju.of('team_workspace_ack').at(-1).ok, true);
+  assert.equal(hub.store.workspaceOwner(ws.id), null);
+  assert.equal(tasks.countActive(ws.id), 0);
+  assert.equal(hub.store.activeTasks(ws.id), 0);
+  assert.equal(tasks.countPaused(ws.id), 1);
+  assert.equal(tasks.task(t1.id).status, 'asked', 'status kept, only paused');
+  ju.frame({ type: 'team_workspace', ref_id: 'l1', op: 'list', reply_ctx: 'room-2' });
+  await tick();
+  assert.deepEqual(ju.of('team_workspace_ack').at(-1).rooms.map(r => [r.name, r.owner, r.active, r.paused]), [['工作区1', '', 0, 1]]);
+  // Not claimed by anyone yet: the paused task resumes on its owner's next stance, and the
+  // workspace is claimed back for general (the chat channel it was paused under).
+  tasks.stance(t1.id, { actor: 'ds', stance: 'accept' });
+  assert.equal(tasks.countActive(ws.id), 1);
+  assert.equal(tasks.countPaused(ws.id), 0);
+  assert.equal(hub.store.workspaceOwner(ws.id), 1);
+});
+
+test('team workspace park: a paused task does not resume into a workspace another chat channel claimed since', async () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(2, 'dev');
+  const ws = hub.store.createWorkspace(1); // general owns 工作区1
+  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
+  hub.setMember({ id: 'ju', name: '橘', kind: 'bot', online: true });
+  const tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
+  const t1 = tasks.assign({ roomId: ws.id, title: '停在干净点的活', owner: 'ds', actor: 'ju' });
+  tasks.stance(t1.id, { actor: 'ds', stance: 'ask', note: '等用户反馈' });
+  assert.equal(tasks.park(ws.id), true);
+  // dev's next workspace is the freed 工作区1, not 工作区2.
+  assert.equal(hub.store.createWorkspace(2).name, '工作区1');
+  assert.equal(hub.store.workspaceOwner(ws.id), 2);
+  // Resuming would make 工作区1 serve two chat channels: refused, nothing changes.
+  assert.throws(() => tasks.stance(t1.id, { actor: 'ds', stance: 'accept' }), e => e.code === 'workspace-owned');
+  assert.equal(tasks.task(t1.id).status, 'asked');
+  assert.ok(tasks.task(t1.id).paused_at != null, 'still paused, still listed');
+  assert.equal(tasks.countPaused(ws.id), 1);
+  assert.equal(tasks.countActive(ws.id), 0);
+  assert.equal(hub.store.workspaceOwner(ws.id), 2, 'dev keeps it');
+  // The paused task stays on general's board (a to-do is not lost), not on dev's.
+  assert.deepEqual(tasks.list(1).map(t => [t.id, t.paused_at != null]), [[t1.id, true]]);
+  assert.deepEqual(tasks.list(2).map(t => t.id), []);
+});
+
+test('team workspace park: a workspace with one paused and one accepted task stays busy for a plain release', async () => {
+  const hub = makeHub();
+  const ws = hub.store.createWorkspace(1);
+  hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const tasks = new Tasks(hub, { setTimer: () => ({}), clearTimer() {} });
+  gw.tasks = tasks;
+  connect(gw, 'bot=ju&name=橘');
+  const a = tasks.assign({ roomId: ws.id, title: 'A', owner: 'ds', actor: 'ju' });
+  tasks.db.prepare('UPDATE tasks SET paused_at = 1 WHERE id = ?').run(a.id);
+  const b = tasks.assign({ roomId: ws.id, title: 'B', owner: 'ds', actor: 'ju' });
+  tasks.stance(b.id, { actor: 'ds', stance: 'accept' });
+  assert.equal(tasks.countActive(ws.id), 1);
+  assert.throws(() => tasks.release(ws.id), /tasks in work/);
+  assert.notEqual(hub.store.workspaceOwner(ws.id), null);
+});
+
 test('POST /collab/api/rooms/{id}/workspaces: owner and bot token create 工作区n+1, others get 401', async () => {
   const { workspacesRoute } = await import('./plugin.mjs');
   const hub = makeHub();
@@ -2378,6 +2511,102 @@ test('#144 attachments: only png/jpeg/gif/webp up to 5 MB go to bots as images, 
   assert.deepEqual(wire.files.map(f => f.file_name), ['b.svg', 'c.heic', 'd.jpg']);
 });
 
+test('bot image/file/audio frames become channel attachments; media capabilities need a store', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { Attachments } = await import('./attachments.mjs');
+  const { publicMessage } = await import('./store.mjs');
+  const { MEDIA_CAPABILITIES, audioMime } = await import('./cloudweb.mjs');
+  const files = new Attachments(join(mkdtempSync(join(tmpdir(), 'collab-media-')), 'attachments'));
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet, files });
+  const ju = connect(gw, 'bot=ju&name=橘');
+  await settle();
+  for (const cap of MEDIA_CAPABILITIES) assert.ok(ju.of('register_ack')[0].capabilities.includes(cap), cap);
+  const plain = connect(new CloudWebGateway(makeHub(), { token: 't', logger: quiet }), 'bot=ju&name=橘');
+  await settle();
+  assert.ok(!plain.of('register_ack')[0].capabilities.includes('image'));
+
+  const b64 = (s) => Buffer.from(s).toString('base64');
+  const at = { session_key: 'cloud_web:room-1', reply_ctx: 'room-1' };
+  ju.frame({ type: 'image', ...at, data: b64('png'), mime_type: 'image/png', file_name: 'chart.png' });
+  ju.frame({ type: 'file', ...at, data: b64('report'), mime_type: 'application/pdf', file_name: 'report.pdf' });
+  ju.frame({ type: 'audio', ...at, data: b64('mp3'), format: 'mp3' });
+  ju.frame({ type: 'image', ...at, data: '' });
+  ju.frame({ type: 'file', session_key: 'cloud_web:room-99', data: b64('x'), file_name: 'lost.txt' });
+  await settle();
+
+  const rows = hub.store.page(1, undefined, 10).map(r => publicMessage(r, hub.store));
+  assert.equal(rows.length, 3);
+  assert.ok(rows.every(r => r.author === 'ju' && r.text === ''));
+  assert.deepEqual(rows.map(r => r.attachments.map(a => [a.name, a.mime])), [
+    [['chart.png', 'image/png']], [['report.pdf', 'application/pdf']], [['voice.mp3', 'audio/mpeg']],
+  ]);
+  assert.equal(files.read(rows[2].attachments[0].id).toString(), 'mp3');
+  assert.equal(audioMime('ogg'), 'audio/ogg');
+  assert.equal(audioMime('opus'), 'audio/ogg');
+  assert.equal(audioMime(''), 'audio/mpeg');
+});
+
+test('bot websocket cap fits a default 50 MiB cc-connect attachment; a 7 MiB file frame is stored', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { Attachments } = await import('./attachments.mjs');
+  const { publicMessage } = await import('./store.mjs');
+  const { BOT_WS_MAX_PAYLOAD } = await import('./plugin.mjs');
+  const frameFor = (n) => JSON.stringify({ type: 'file', session_key: 'cloud_web:room-1', reply_ctx: 'room-1',
+    data: Buffer.alloc(n).toString('base64'), mime_type: 'application/octet-stream', file_name: 'big.bin' });
+  assert.ok(Buffer.byteLength(frameFor(50 * 1024 * 1024)) <= BOT_WS_MAX_PAYLOAD);
+
+  const files = new Attachments(join(mkdtempSync(join(tmpdir(), 'collab-big-')), 'attachments'));
+  const hub = makeHub();
+  const ju = connect(new CloudWebGateway(hub, { token: 't', logger: quiet, files }), 'bot=ju&name=橘');
+  await settle();
+  const big = Buffer.alloc(7 * 1024 * 1024, 7);
+  ju.frame({ type: 'file', session_key: 'cloud_web:room-1', reply_ctx: 'room-1', data: big.toString('base64'),
+    mime_type: 'application/octet-stream', file_name: 'big.bin' });
+  await settle();
+  const [row] = hub.store.page(1, undefined, 10).map(r => publicMessage(r, hub.store));
+  assert.deepEqual(row.attachments.map(a => [a.name, a.size]), [['big.bin', big.length]]);
+  assert.ok(files.read(row.attachments[0].id).equals(big));
+});
+
+test('attachment download: 200 without Range, 206 for byte ranges, 416 out of range', async () => {
+  const { createServer } = await import('node:http');
+  const { sendAttachment, parseRange } = await import('./plugin.mjs');
+  const bytes = Buffer.from('0123456789');
+  const server = createServer((req, res) => sendAttachment(req, res, { mime: 'audio/mpeg', name: 'voice.mp3' }, bytes));
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  const get = (range) => fetch(`http://127.0.0.1:${server.address().port}/`, range === undefined ? {} : { headers: { range } });
+  try {
+    const all = await get();
+    assert.equal(all.status, 200);
+    assert.equal(all.headers.get('accept-ranges'), 'bytes');
+    assert.equal(all.headers.get('content-length'), '10');
+    assert.equal(all.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(await all.text(), '0123456789');
+    for (const [range, body, cr] of [['bytes=2-4', '234', 'bytes 2-4/10'], ['bytes=7-', '789', 'bytes 7-9/10'],
+      ['bytes=-3', '789', 'bytes 7-9/10'], ['bytes=0-99', '0123456789', 'bytes 0-9/10'], ['bytes=0-1', '01', 'bytes 0-1/10']]) {
+      const res = await get(range);
+      assert.equal(res.status, 206, range);
+      assert.equal(res.headers.get('content-range'), cr, range);
+      assert.equal(res.headers.get('content-length'), String(body.length), range);
+      assert.equal(res.headers.get('accept-ranges'), 'bytes', range);
+      assert.equal(await res.text(), body, range);
+    }
+    for (const range of ['bytes=10-', 'bytes=99-120', 'bytes=-0']) {
+      const res = await get(range);
+      assert.equal(res.status, 416, range);
+      assert.equal(res.headers.get('content-range'), 'bytes */10', range);
+      await res.arrayBuffer();
+    }
+    assert.equal((await get('items=0-1')).status, 200);
+    assert.equal(parseRange('bytes=0-1,4-5', 10), undefined);
+  } finally { server.close(); }
+});
+
 test('#144 oversized POST body gets a 413 response instead of a dropped connection', async () => {
   const { createServer } = await import('node:http');
   const { withBody } = await import('./plugin.mjs');
@@ -2552,3 +2781,180 @@ function route(hub, gateway, dsh) {
     return { status: res.status, json: JSON.parse(res.body) };
   };
 }
+
+test('tasks: the lead @-ing teammates opens board tasks; their reply to the lead hands back; the lead\'s next message accepts', async () => {
+  const { hub, tasks } = makeTasks();
+  hub.fallbackLead = 'lead';
+  hub.setMember({ id: 'gpt', name: '龙娘', kind: 'bot', online: true });
+  const say = (author, name, text) => hub.post(1, { authorKind: 'role', author, name, text }).message;
+  const dispatch = say('lead', '橘', '@龙娘 @DeepSeek 把登录页写完\n细节见上');
+  await tick();
+  let list = tasks.list(1);
+  assert.deepEqual(list.map(t => [t.owner, t.status, t.title, t.assign_msg_id]).sort(),
+    [['ds', 'assigned', '把登录页写完', dispatch.id], ['gpt', 'assigned', '把登录页写完', dispatch.id]]);
+  // A second @ to an owner with an open task from the lead is a follow-up, not a new task.
+  say('lead', '橘', '@龙娘 记得加测试');
+  await tick();
+  assert.equal(tasks.list(1).length, 2);
+  // Stance after the lead's @ (bridge lead_return form) still counts as a stance, not a hand-back.
+  say('gpt', '龙娘', '@橘 【接】 开工');
+  await tick();
+  assert.equal(tasks.list(1).find(t => t.owner === 'gpt').status, 'accepted');
+  // Bridge status notices never hand back.
+  say('gpt', '龙娘', '⏳ @橘 还在跑');
+  const result = say('gpt', '龙娘', '@橘 登录页写好了');
+  await tick();
+  list = tasks.list(1);
+  assert.deepEqual([list.find(t => t.owner === 'gpt').status, list.find(t => t.owner === 'gpt').result_msg_id], ['returned', result.id]);
+  assert.equal(list.find(t => t.owner === 'ds').status, 'assigned');
+  say('lead', '橘', '收到，龙娘这份可以');
+  await tick();
+  list = tasks.list(1);
+  assert.equal(list.find(t => t.owner === 'gpt').status, 'done');
+  assert.equal(list.find(t => t.owner === 'ds').status, 'assigned');
+  // Teammates' own @s and plain chat never open tasks; API tasks are never auto-accepted.
+  say('gpt', '龙娘', '@DeepSeek 你那边呢');
+  const api = tasks.assign({ roomId: 1, title: 'api', owner: 'gpt', actor: 'lead' });
+  tasks.handBack(api.id, { actor: 'gpt', messageId: result.id });
+  say('lead', '橘', '好');
+  await tick();
+  assert.equal(tasks.task(api.id).status, 'returned');
+  assert.equal(tasks.list(1).length, 3);
+  tasks.close(); hub.store.close();
+});
+
+test('tasks: bridge task card members open and hand back board tasks (cloud-web task_members)', async () => {
+  const { hub, tasks } = makeTasks();
+  const gw = new CloudWebGateway(hub, { token: 'tok', logger: quiet });
+  gw.tasks = tasks;
+  hub.setMember({ id: 'gpt', name: '龙娘', kind: 'bot', online: true });
+  const ws = new FakeWs();
+  gw.accept(ws, new URL('ws://x/?bot=lead&name=橘'));
+  ws.frame({ type: 'register', project: 'lead' });
+  // Statuses as core.TaskMember writes them (task_members.go: report result -> completed);
+  // the sub-row shares the teammate's reporter_project, as the bridge sends it.
+  const card = (status, child = status) => PROGRESS_PREFIX + JSON.stringify({ state: 'running', items: [{ kind: 'info', text: '📋 t' }],
+    task_members: [{ reporter_project: 'gpt', id: 'm1', name: '龙娘', title: '修 bug', status },
+      { reporter_project: 'gpt', id: 'c1', parent_id: 'm1', name: 'subagent', title: 'x', status: child }] });
+  ws.frame({ type: 'preview_start', ref_id: 'taskcard-1', reply_ctx: 'room-1', content: card('queued'), seq: 1 });
+  await tick();
+  const handle = ws.of('preview_ack')[0].preview_handle;
+  let list = tasks.list(1);
+  assert.deepEqual(list.map(t => [t.owner, t.created_by, t.status, t.title]), [['gpt', 'lead', 'assigned', '修 bug']]);
+  ws.frame({ type: 'update_message', preview_handle: handle, content: card('running'), seq: 2 });
+  await tick();
+  assert.equal(tasks.list(1).length, 1);
+  // A finished sub-row neither hands back the teammate's task nor lets the next frame reopen one.
+  ws.frame({ type: 'update_message', preview_handle: handle, content: card('running', 'completed'), seq: 3 });
+  ws.frame({ type: 'update_message', preview_handle: handle, content: card('running', 'completed'), seq: 4 });
+  await tick();
+  list = tasks.list(1);
+  assert.deepEqual(list.map(t => t.status), ['assigned'], 'sub-rows are ignored');
+  ws.frame({ type: 'update_message', preview_handle: handle, content: card('completed'), seq: 5 });
+  await tick();
+  list = tasks.list(1);
+  assert.deepEqual([list[0].status, list[0].result_msg_id], ['returned', Number(handle)]);
+  // A retried preview_start arriving late (older seq, member still queued) must not reopen a task.
+  ws.frame({ type: 'preview_start', ref_id: 'taskcard-1', reply_ctx: 'room-1', content: card('queued'), seq: 1 });
+  await tick();
+  assert.deepEqual(tasks.list(1).map(t => t.status), ['returned'], 'late preview_start reopened a task');
+  // Every other ending core.TaskMember can reach hands back too.
+  for (const [i, end] of ['failed', 'cancelled', 'interrupted'].entries()) {
+    const ref = `taskcard-${i + 2}`;
+    ws.frame({ type: 'preview_start', ref_id: ref, reply_ctx: 'room-1', content: card('running'), seq: 1 });
+    await tick();
+    const h = ws.of('preview_ack').at(-1).preview_handle;
+    ws.frame({ type: 'update_message', preview_handle: h, content: card(end), seq: 2 });
+    await tick();
+    const t = tasks.list(1).find(x => x.assign_msg_id === Number(h));
+    assert.equal(t?.status, 'returned', `${end} hands back`);
+  }
+  tasks.close(); hub.store.close();
+});
+
+test('tasks: a 【问】【退】【升】 reply to the lead with no task to answer is not a hand-back', async () => {
+  const { hub, tasks } = makeTasks();
+  hub.fallbackLead = 'lead';
+  hub.setMember({ id: 'gpt', name: '龙娘', kind: 'bot', online: true });
+  const say = (author, name, text) => hub.post(1, { authorKind: 'role', author, name, text }).message;
+  say('lead', '橘', '@龙娘 把登录页写完');
+  await tick();
+  say('gpt', '龙娘', '@橘 【接】 开工');
+  await tick();
+  for (const text of ['@橘 【问】接口用哪个版本', '@橘 【退】这个不归我', '@橘 【升】范围太大']) {
+    say('gpt', '龙娘', text);
+    await tick();
+    assert.equal(tasks.list(1)[0].status, 'accepted', text);
+  }
+  say('lead', '橘', '用 v2');
+  await tick();
+  assert.equal(tasks.list(1)[0].status, 'accepted', 'the lead answering a question does not accept the task');
+  tasks.close(); hub.store.close();
+});
+
+test('DSH member: tool calls post a live progress card that closes with the turn; replies stay out of relay depth', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: '大肥鱼' }]);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@大肥鱼 查一下日志' });
+  await settle();
+  const agent = dsh.sessions.get(dsh.made[0]);
+  dsh.turn(agent, [], null);
+  const n = agent.turns;
+  dsh.emit(agent, 'tool/call', { turn: n, step: 1, callId: 'c1', name: 'bash', arguments: JSON.stringify({ command: 'tail -n 20 app.log' }) });
+  await settle();
+  const cardRow = () => hub.store.page(1, undefined, 10).find(m => m.card !== null);
+  let row = cardRow();
+  assert.equal(row.author, 'ds');
+  let card = JSON.parse(row.card);
+  assert.equal(card.title, '大肥鱼 · 处理中');
+  assert.equal(card.steps, 1);
+  assert.match(row.text, /bash — tail -n 20 app\.log/);
+  assert.match(card.brief, /bash · 进行中/);
+  dsh.emit(agent, 'tool/result', { turn: n, step: 1, message: { role: 'tool', toolCallId: 'c1' } });
+  dsh.emit(agent, 'tool/call', { turn: n, step: 2, callId: 'c2', name: 'read', arguments: '{"path":"a.txt"}' });
+  dsh.emit(agent, 'tool/result', { turn: n, step: 2, message: { role: 'tool', toolCallId: 'c2', isError: true } });
+  await settle();
+  card = JSON.parse(cardRow().card);
+  assert.equal(card.steps, 2);
+  assert.match(card.brief, /✅ bash · 成功/);
+  assert.match(card.brief, /❌ read · 失败/);
+  dsh.emit(agent, 'assistant/message', { message: { content: [{ type: 'text', text: '日志没问题' }] } });
+  dsh.emit(agent, 'turn/end', { turn: n, reason: { kind: 'completed' } });
+  await settle();
+  const rows = hub.store.page(1, undefined, 10);
+  assert.equal(rows.filter(m => m.card !== null).length, 1, 'one card per turn, edited in place');
+  assert.equal(JSON.parse(cardRow().card).title, '大肥鱼 · 已完成');
+  assert.equal(rows.at(-1).text, '日志没问题');
+  assert.equal(hub.store.relayDepth(1, rows.at(-1).id), 1, 'the card is not a relay hop');
+});
+
+test('DSH member: a turn without tool calls posts no progress card', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: '大肥鱼' }]);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@大肥鱼 在吗' });
+  await settle();
+  dsh.turn(dsh.sessions.get(dsh.made[0]), ['在']);
+  await settle();
+  assert.equal(hub.store.page(1, undefined, 10).filter(m => m.card !== null).length, 0);
+});
+
+test('CLI member: ACP tool calls feed the same progress card', async () => {
+  const hub = makeHub();
+  cliMembers(hub, async (_text, _room, _onText, onTool) => {
+    onTool({ sessionUpdate: 'tool_call', toolCallId: 't1', title: 'Read', kind: 'read', status: 'pending', rawInput: { file_path: '/w/x.md' } });
+    await tick(); await tick();
+    onTool({ sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'completed' });
+    onTool({ sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'completed' });
+    return '看完了';
+  });
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 看下 x.md' });
+  await settle();
+  const row = hub.store.page(1, undefined, 10).find(m => m.card !== null);
+  const card = JSON.parse(row.card);
+  assert.equal(card.title, 'CC · 已完成');
+  assert.equal(card.brief.split('\n').length, 2, 'a repeated completed update adds no step');
+  assert.match(card.brief, /✅ Read · 成功/);
+  assert.match(row.text, /Read — \/w\/x\.md/);
+});

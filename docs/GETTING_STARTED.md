@@ -10,7 +10,7 @@ bothouse = **团队协作 + wiki 记忆**：一群 AI 伙伴在聊天软件里�
 
 **1. 装。** 从 [Releases](https://github.com/zuiho-kai/bothouse/releases) 下载：
 
-- macOS：`bothouse-mac.dmg`（Apple 芯片和 Intel 通用）；把 Bothouse.app 拖进 Applications 后双击。尚未签名，首次打开请「右键→打开」。
+- macOS：`bothouse-mac.dmg`（Apple 芯片和 Intel 通用）；把 Bothouse.app 拖入 Applications，首次打开请「右键→打开」（安装包未签名）。
 - Windows：`bothouse-windows.exe`（x64，ARM64 Windows 也可运行），下载后双击。
 - Linux：`bothouse-linux-x64` 或 `bothouse-linux-arm64`，`chmod +x` 后运行。
 
@@ -24,10 +24,10 @@ curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh 
 
 装完它会告诉你 `~/.local/bin` 在不在 PATH 里，不在就照它给的那行加上。
 
-默认装最新的发布版（含预发布版）。要装固定版本（比如几个人用同一版、或者退回上一版），在 `sh` 前面加 `CONEST_VERSION=<tag>`，tag 在仓库的 Releases 页能看到：
+默认装最新的发布版（含预发布版）。要装固定版本（比如几个人用同一版、或者退回上一版），在 `sh` 前面加 `BOTHOUSE_VERSION=<tag>`，tag 在仓库的 Releases 页能看到：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | CONEST_VERSION=<tag> sh
+curl -fsSL https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.sh | BOTHOUSE_VERSION=<tag> sh
 ```
 
 `<tag>` 换成 Releases 页上的版本名（形如 `v0.1.0-rc5`）。
@@ -45,7 +45,7 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex
 **2. 配。** 二选一，写的是同一份配置（`~/.bothouse/config.toml`，Windows 是 `%USERPROFILE%\.bothouse\config.toml`）：
 
 - 人：运行 `bothouse`。第一次运行会自动在浏览器打开安装向导（打不开就把带口令的链接打印出来，复制到浏览器）。
-  按页面点：选平台 → 填机器人 token → 选服务器和频道 → 每个角色选本机 CLI → 人设 → 兜底角色 → jev（可跳过）→ 保存 → 「重启生效」。
+  按页面点：选平台 → 填机器人 token → 选服务器和频道 → 每个角色选本机 CLI → 人设 → 主角色 → jev（可跳过）→ 保存 → 「重启生效」。
   以上 token、服务器和频道步骤适用于 Discord。选「自建平台」时，点「在本机启动」、填写角色名即可，不用注册 Discord 机器人；详见[自建平台步骤](connect-discord-feishu.md#7-自建平台)。
 - AI：对 Claude Code / Codex 说「帮我把 bothouse 配好接上 Discord」。它按 [AGENTS.md](../AGENTS.md) 一次问齐要的东西，跑 `bothouse setup apply`。
 
@@ -60,7 +60,7 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex
 - 都没有就是好了。日志里出现 `discord: connected` 就是上线，去频道里 @ 机器人说一句试试。
 - 想关掉终端也一直在线：`bothouse daemon install`（装成后台服务、开机登录后自动起：macOS 用 launchd，Linux 用 systemd，Windows 用「任务计划程序」）。Windows 上 `bothouse daemon stop` / `uninstall` 会结束这个服务启动的全部进程，包括机器人正在跑的 AI CLI；在机器人里让 AI 跑 `bothouse daemon restart`（或 stop、install --force、uninstall）也可以：这时操作交给服务外的一个后台进程做完，结果写在 `%USERPROFILE%\.bothouse\logs\daemon-handoff.log`。
 
-**gate 可以不装。** 没有 gate 时，被 @ 的角色照常回，其余消息都由兜底角色回。想让 AI 自己判断一句话该谁回再装 gate（[线 1](ccm-and-wiki.md) 第 3 步）：要先在向导填 jev，没填 gate 会报错并提示怎么填。
+**gate 可以不装。** 没有 gate 时，被 @ 的角色照常回，其余消息都由主角色回。想让 AI 自己判断一句话该谁回再装 gate（[线 1](ccm-and-wiki.md) 第 3 步）：要先在向导填 jev，没填 gate 会报错并提示怎么填。
 
 新安装默认使用 `~/.bothouse`；没有该目录而存在旧配置目录时，会继续沿用旧配置，不移动文件。
 
@@ -93,7 +93,7 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex
 - **gate（快脑）**：每条消息先问它「回 / 插进正在做的这一轮 / 不回」。先走规则，规则定不了再让 jev 读选项概率。
 - **wiki**：llm-wiki 的分层记忆（`MEMORY.md` → 域 `README.md` → 主题页）。会话结束后自动整理进去，gate 每轮把相关的页推给 bot。
 - **jev**：只做选择题、给出选项概率的模型。gate 用它判断群里一句话该哪个角色回。
-  向导里三个框（Base URL、Key、模型）填一个给概率的 OpenAI 兼容模型就行；gate 要用它，没填时 gate 启动会报错并提示怎么填（gate 没在运行时，没被 @ 的消息由兜底角色回）。
+  向导里三个框（Base URL、Key、模型）填一个给概率的 OpenAI 兼容模型就行；gate 要用它，没填时 gate 启动会报错并提示怎么填（gate 没在运行时，没被 @ 的消息由主角色回）。
 
 ## 两条线
 

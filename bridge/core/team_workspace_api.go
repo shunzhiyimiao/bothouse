@@ -8,9 +8,10 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 )
 
-// teamWorkspaceEngine picks the engine that owns the workspaces: the team lead with
+// teamWorkspaceEngine picks the engine that owns the workspaces: the primary role with
 // team_workspaces on. A working role (any project) may ask; the lead's bot creates.
 func (s *APIServer) teamWorkspaceEngine() *Engine {
 	s.mu.RLock()
@@ -53,7 +54,7 @@ func (s *APIServer) handleTeamWorkspaceNew(w http.ResponseWriter, r *http.Reques
 	}
 	e := s.teamWorkspaceEngine()
 	if e == nil {
-		http.Error(w, "team workspaces are off (team_workspaces = false on the team lead project, or no lead)", http.StatusServiceUnavailable)
+		http.Error(w, "team workspaces are off (team_workspaces = false on the primary role project, or no primary role)", http.StatusServiceUnavailable)
 		return
 	}
 	parent, ws, err := e.NewTeamWorkspace(req.SessionKey)
@@ -89,7 +90,7 @@ func (s *APIServer) handleTeamWorkspaceList(w http.ResponseWriter, r *http.Reque
 	}
 	e := s.teamWorkspaceEngine()
 	if e == nil {
-		http.Error(w, "team workspaces are off (team_workspaces = false on the team lead project, or no lead)", http.StatusServiceUnavailable)
+		http.Error(w, "team workspaces are off (team_workspaces = false on the primary role project, or no primary role)", http.StatusServiceUnavailable)
 		return
 	}
 	parent := teamChatKey(key)
@@ -122,7 +123,7 @@ func (s *APIServer) handleTeamWorkspaceClaim(w http.ResponseWriter, r *http.Requ
 	}
 	e := s.teamWorkspaceEngine()
 	if e == nil {
-		http.Error(w, "team workspaces are off (team_workspaces = false on the team lead project, or no lead)", http.StatusServiceUnavailable)
+		http.Error(w, "team workspaces are off (team_workspaces = false on the primary role project, or no primary role)", http.StatusServiceUnavailable)
 		return
 	}
 	if req.Name == "" {
@@ -145,4 +146,85 @@ func (s *APIServer) handleTeamWorkspaceClaim(w http.ResponseWriter, r *http.Requ
 	plat, _, _ := strings.Cut(teamChatKey(req.SessionKey), ":")
 	parent, _ := e.WorkspaceParent(plat + ":" + req.WorkspaceID)
 	apiJSON(w, http.StatusOK, TeamWorkspaceListResult{Parent: parent, Workspaces: e.TeamWorkspacesOf(parent)})
+}
+
+// TeamWorkspaceParkResult is the reply of POST /team/workspace/park.
+type TeamWorkspaceParkResult struct {
+	Workspace string `json:"workspace"` // "<platform>:<workspace id>"
+	// Freed: no other task is in work there, so the workspace went back to the pool (on
+	// cloud_web/DSH once the gateway agrees) and its sessions were reset. False: other tasks
+	// keep it; only this one is paused.
+	Freed bool `json:"freed"`
+}
+
+// handleTeamWorkspacePark pauses one task of a workspace (ParkTeamWorkspace): workspace_id
+// names it on the platform of session_key; without workspace_id, session_key is the workspace.
+// When it was the last task in work there, the workspace goes back to the pool and the
+// sessions of every role in it are reset. 404 when no chat channel owns the workspace.
+func (s *APIServer) handleTeamWorkspacePark(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		SessionKey  string `json:"session_key"`
+		WorkspaceID string `json:"workspace_id"`
+		// Chat: the chat channel that handed the task off (the board pausing it); it must own the
+		// workspace now, and only its handoff is parked. Before (RFC 3339): when the board bound
+		// the task; the newest handoff of chat at or before it is the one parked.
+		Chat   string `json:"chat"`
+		Before string `json:"before"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.SessionKey == "" {
+		http.Error(w, "session_key is required (the chat or workspace channel)", http.StatusBadRequest)
+		return
+	}
+	var before time.Time
+	if req.Before != "" {
+		t, err := time.Parse(time.RFC3339Nano, req.Before)
+		if err != nil {
+			http.Error(w, "before must be RFC 3339: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		before = t
+	}
+	e := s.teamWorkspaceEngine()
+	if e == nil {
+		http.Error(w, "team workspaces are off (team_workspaces = false on the primary role project, or no primary role)", http.StatusServiceUnavailable)
+		return
+	}
+	key := teamChatKey(req.SessionKey)
+	if req.WorkspaceID != "" {
+		plat, _, _ := strings.Cut(key, ":")
+		key = plat + ":" + req.WorkspaceID
+	}
+	freed, err := e.ParkTeamWorkspaceFor(key, req.Chat, before)
+	if errors.Is(err, ErrTeamWorkspaceNotOwned) {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	res := TeamWorkspaceParkResult{Workspace: key, Freed: freed}
+	if freed {
+		// ParkTeamWorkspace reset the lead's sessions; the teammates' engines reset theirs.
+		s.mu.RLock()
+		others := make([]*Engine, 0, len(s.engines))
+		for _, x := range s.engines {
+			if x != e {
+				others = append(others, x)
+			}
+		}
+		s.mu.RUnlock()
+		for _, x := range others {
+			x.ResetTeamWorkspaceSessions(key)
+		}
+	}
+	apiJSON(w, http.StatusOK, res)
 }
