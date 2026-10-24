@@ -28,6 +28,10 @@ const MAX_TIMER_MS = 2 ** 31 - 1;
 const STANCE_LINE = /^\s*【(接|问|退|升)】\s*(?:#(\d+))?\s*(.*)$/;
 const HUMAN = 'owner';
 const PLACEHOLDERS = WORKING.map(() => '?').join(', ');
+// A paused task (park: the bridge released its workspace with the task stopped at a clean
+// point) keeps its status but is not in progress: no check timer, not counted. Any status
+// change by its owner or the lead (stance, hand-back, review) resumes it.
+const LIVE = `status IN (${PLACEHOLDERS}) AND paused_at IS NULL`;
 
 export class Tasks {
   /**
@@ -58,22 +62,25 @@ export class Tasks {
       add: this.db.prepare(`INSERT INTO tasks (room_id, parent_task, title, owner, created_by, status, next_check_at, assign_msg_id, created_at, updated_at, reason)
         VALUES (?, ?, ?, ?, ?, 'assigned', ?, ?, ?, ?, ?) RETURNING *`),
       // The last ? keeps (1) or drops (0) an undelivered reminder: only 接/问 stay the owner's turn.
-      set: this.db.prepare('UPDATE tasks SET status = ?, next_check_at = ?, note = ?, updated_at = ?, remind_msg_id = CASE WHEN ? THEN remind_msg_id END WHERE id = ? AND status = ? RETURNING *'),
-      handBack: this.db.prepare(`UPDATE tasks SET status = 'returned', next_check_at = NULL, remind_msg_id = NULL, result_msg_id = ?, returned_at = ?, updated_at = ?
+      set: this.db.prepare('UPDATE tasks SET status = ?, paused_at = NULL, next_check_at = ?, note = ?, updated_at = ?, remind_msg_id = CASE WHEN ? THEN remind_msg_id END WHERE id = ? AND status = ? RETURNING *'),
+      handBack: this.db.prepare(`UPDATE tasks SET status = 'returned', paused_at = NULL, next_check_at = NULL, remind_msg_id = NULL, result_msg_id = ?, returned_at = ?, updated_at = ?
         WHERE id = ? AND status = ? RETURNING *`),
       bindAssign: this.db.prepare('UPDATE tasks SET assign_msg_id = ? WHERE id = ? AND assign_msg_id IS NULL'),
       due: this.db.prepare(`SELECT * FROM tasks WHERE next_check_at IS NOT NULL AND next_check_at <= ?
-        AND status IN (${PLACEHOLDERS}) ORDER BY next_check_at, id`),
+        AND ${LIVE} ORDER BY next_check_at, id`),
       // Posting the reminder and marking it undelivered is one step; the check time is spent.
       unremind: this.db.prepare('UPDATE tasks SET next_check_at = NULL, remind_msg_id = ? WHERE id = ? AND next_check_at IS NOT NULL RETURNING *'),
-      undelivered: this.db.prepare(`SELECT * FROM tasks WHERE remind_msg_id IS NOT NULL AND status IN (${PLACEHOLDERS}) ORDER BY id`),
+      undelivered: this.db.prepare(`SELECT * FROM tasks WHERE remind_msg_id IS NOT NULL AND ${LIVE} ORDER BY id`),
       // Clear before waking (a success is never re-sent); restore only if nobody took it.
       takeRemind: this.db.prepare('UPDATE tasks SET remind_msg_id = NULL WHERE id = ? AND remind_msg_id = ? RETURNING *'),
       putRemind: this.db.prepare('UPDATE tasks SET remind_msg_id = ? WHERE id = ? AND remind_msg_id IS NULL'),
-      next: this.db.prepare(`SELECT MIN(next_check_at) AS at FROM tasks WHERE next_check_at IS NOT NULL AND status IN (${PLACEHOLDERS})`),
-      active: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND status IN (${PLACEHOLDERS})`),
-      busyOfOwner: this.db.prepare(`SELECT * FROM tasks WHERE owner = ? AND status IN (${PLACEHOLDERS}) ORDER BY updated_at DESC`),
-      allBusy: this.db.prepare(`SELECT * FROM tasks WHERE status IN (${PLACEHOLDERS}) ORDER BY updated_at DESC`),
+      next: this.db.prepare(`SELECT MIN(next_check_at) AS at FROM tasks WHERE next_check_at IS NOT NULL AND ${LIVE}`),
+      active: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND ${LIVE}`),
+      paused: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND status IN (${PLACEHOLDERS}) AND paused_at IS NOT NULL`),
+      // paused_chat: the chat channel that owned the workspace when the task was paused (resumeClaim).
+      park: this.db.prepare(`UPDATE tasks SET paused_at = ?, paused_chat = ?, next_check_at = NULL WHERE room_id = ? AND ${LIVE}`),
+      busyOfOwner: this.db.prepare(`SELECT * FROM tasks WHERE owner = ? AND ${LIVE} ORDER BY updated_at DESC`),
+      allBusy: this.db.prepare(`SELECT * FROM tasks WHERE ${LIVE} ORDER BY updated_at DESC`),
       // A stance line without #id only answers a dispatch the owner has not answered yet.
       latestAssigned: this.db.prepare("SELECT * FROM tasks WHERE room_id = ? AND owner = ? AND status = 'assigned' ORDER BY id DESC LIMIT 1"),
       children: this.tree ? this.db.prepare("SELECT id FROM rooms WHERE kind = 'workspace' AND parent_id = ? ORDER BY id") : undefined,
@@ -119,12 +126,19 @@ export class Tasks {
     const chat = this.chatOf(roomId);
     if (chat === undefined) throw new CollabError('room-missing', `room ${roomId} does not exist`);
     const rooms = [chat, ...(this.tree ? this.q.children.all(chat).map(r => r.id) : [])];
-    const rows = this.db.prepare(`SELECT * FROM tasks WHERE room_id IN (${rooms.map(() => '?').join(', ')}) ORDER BY id DESC`).all(...rooms);
+    // A paused task stays on the board of the chat channel it was paused under (paused_chat), even
+    // after its workspace went back to the pool and another chat channel claimed it: a to-do is never lost.
+    const rows = this.db.prepare(`SELECT * FROM tasks WHERE (room_id IN (${rooms.map(() => '?').join(', ')})
+      AND (paused_at IS NULL OR paused_chat IS NULL OR paused_chat = ?)) OR (paused_at IS NOT NULL AND paused_chat = ?)
+      ORDER BY id DESC`).all(...rooms, chat, chat);
     return rows.map(r => this.view(r));
   }
 
   /** In-progress tasks in one room (the "进行中 N 件" next to it in the channel list). */
   countActive(roomId) { return this.q.active.get(roomId, ...WORKING).n; }
+
+  /** Paused tasks in roomId (park): not counted by countActive. */
+  countPaused(roomId) { return this.q.paused.get(roomId, ...WORKING).n; }
 
   /** Public task row: codes plus display names. */
   view(t) {
@@ -133,6 +147,7 @@ export class Tasks {
       owner: t.owner, owner_name: this.nameOf(t.owner), created_by: t.created_by, created_by_name: this.nameOf(t.created_by),
       status: t.status, next_check_at: t.next_check_at, assign_msg_id: t.assign_msg_id, result_msg_id: t.result_msg_id,
       note: t.note, reason: t.reason, created_at: t.created_at, updated_at: t.updated_at, returned_at: t.returned_at,
+      paused_at: t.paused_at ?? null,
     };
   }
 
@@ -229,6 +244,7 @@ export class Tasks {
     if (actor !== task.owner && actor !== HUMAN) throw new CollabError('forbidden', `only ${this.nameOf(task.owner)} can answer task ${id}`);
     if (!WORKING.includes(task.status)) throw new CollabError('conflict', `task ${id} is ${STATUS[task.status]}, not waiting for its owner`);
     const status = STANCES[mark];
+    this.resumeClaim(task, true);
     // 退/升 hand the turn to the lead: the reminder is cancelled.
     const check = status === 'declined' || status === 'escalated' ? null : task.next_check_at;
     const row = this.q.set.get(status, check, clip(note), this.now(), check === null ? 0 : 1, id, task.status);
@@ -244,6 +260,7 @@ export class Tasks {
     if (actor !== task.owner && actor !== HUMAN) throw new CollabError('forbidden', `only ${this.nameOf(task.owner)} can hand back task ${id}`);
     if (!WORKING.includes(task.status)) throw new CollabError('conflict', `task ${id} is ${STATUS[task.status]}, nothing to hand back`);
     if (messageId == null || this.store.message(messageId) === undefined) throw new CollabError('invalid', 'message_id must name the delivery message');
+    this.resumeClaim(task, false);
     const now = this.now();
     const row = this.q.handBack.get(messageId, now, now, id, task.status);
     if (row === undefined) throw new CollabError('conflict', `task ${id} changed meanwhile`);
@@ -409,6 +426,40 @@ export class Tasks {
       try { released(roomId); } catch (error) { this.hub.logger?.warn?.('collab: workspace release hook failed', error); }
     }
     return true;
+  }
+
+  /**
+   * Park workspace roomId (the bridge's op release with park, core ParkTeamWorkspace): its tasks
+   * in work are marked paused (still the owner's, resumed by any status change) and the workspace
+   * is released to the pool like release() (same claim check, 'stale-claim' before anything is
+   * paused). Returns whether it was released now.
+   */
+  park(roomId, claim = null) {
+    if (this.store.room(roomId)?.kind !== 'workspace' || this.store.workspaceOwner(roomId) == null) return false;
+    if (claim != null && String(claim) !== this.store.claimId(roomId)) {
+      throw new CollabError('stale-claim', `workspace ${roomId} was claimed again since claim ${claim}`);
+    }
+    this.q.park.run(this.now(), this.store.workspaceOwner(roomId), roomId, ...WORKING);
+    const released = this.release(roomId, claim);
+    this.arm();
+    return released;
+  }
+
+  /**
+   * A paused task's workspace was released by park and may have been claimed by another chat
+   * channel since. Resuming it there would make the workspace serve two chat channels and send
+   * its asks/reports (team-exit, by rooms.parent_id) to the later one. So: owned by another chat
+   * channel → refused with 'workspace-owned' and nothing changes (the task stays paused, still
+   * listed; hand it off again to a free workspace). Free and reclaim → claimed back for the chat
+   * channel it was paused under. Tasks not paused, or paused before paused_chat existed, pass.
+   */
+  resumeClaim(task, reclaim) {
+    if (task.paused_at == null || task.paused_chat == null || !this.tree) return;
+    const owner = this.store.workspaceOwner(task.room_id);
+    if (owner != null && owner !== task.paused_chat) {
+      throw new CollabError('workspace-owned', `task ${task.id} is paused and its workspace now belongs to room ${owner}; hand it off again to a free workspace`);
+    }
+    if (owner == null && reclaim) this.store.claimWorkspace(task.paused_chat, task.room_id);
   }
 
   changed(id) {
