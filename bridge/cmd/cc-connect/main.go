@@ -394,6 +394,7 @@ func runMain() {
 	core.NoteUpdateStart(cfg.DataDir) // a waiting update self-check needs our PID
 	go core.EnsureLocalHub(context.Background(), cfg.DataDir)
 
+	usageLedger := core.NewUsageLedger(cfg.DataDir, core.UsagePricesWithDefaults(cfg.UsagePrices))
 	engines := make([]*core.Engine, 0, len(cfg.Projects))
 	effectiveWorkDirs := make([]string, 0, len(cfg.Projects))
 
@@ -1171,6 +1172,8 @@ func runMain() {
 		}
 		mgmtSrv = core.NewManagementServer(port, cfg.Management.Token, cfg.Management.CORSOrigins)
 		mgmtSrv.SetHost(cfg.Management.Host)
+		mgmtSrv.SetUsageLedger(usageLedger)
+		mgmtSrv.SetUsageImporter(core.NewUsageImporter(cfg.DataDir, usageLedger, usageLogSources(cfg.Projects)...))
 		for i, e := range engines {
 			mgmtSrv.RegisterEngine(cfg.Projects[i].Name, e)
 		}
@@ -2173,4 +2176,43 @@ func wireColdCacheFresh(engine *core.Engine, proj config.ProjectConfig) {
 			"project", proj.Name, "idle_mins", idle, "agent_session_idle_timeout_mins", *t)
 	}
 	engine.SetColdCacheFresh(true, time.Duration(idle)*time.Minute, minTokens)
+}
+
+// pluginUsageLogSources holds sources of agents compiled in by build tag.
+var pluginUsageLogSources []core.UsageLogSource
+
+// usageLogSources lists the CLI session logs the usage page reads.
+func usageLogSources(projects []config.ProjectConfig) []core.UsageLogSource {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	claudeDir := filepath.Join(home, ".claude")
+	if d := os.Getenv("CLAUDE_CONFIG_DIR"); d != "" {
+		claudeDir = d
+	}
+	codexHome := filepath.Join(home, ".codex")
+	if d := os.Getenv("CODEX_HOME"); d != "" {
+		codexHome = d
+	}
+	return append([]core.UsageLogSource{
+		core.ClaudeCodeUsageSource{Dir: filepath.Join(claudeDir, "projects")},
+		core.CodexUsageSource{Home: codexHome},
+		&core.DSHUsageSource{Homes: dshUsageHomes(home, projects)},
+	}, pluginUsageLogSources...)
+}
+
+// dshUsageHomes: $DSH_HOME (else ~/.dsh, DSH's default) plus every DSH_HOME a role sets in its agent env.
+func dshUsageHomes(home string, projects []config.ProjectConfig) []string {
+	def := os.Getenv("DSH_HOME")
+	if def == "" {
+		def = filepath.Join(home, ".dsh")
+	}
+	homes := []string{def}
+	for _, p := range projects {
+		if h := core.DSHHomeFromOptions(p.Agent.Options); h != "" {
+			homes = append(homes, expandHome(h))
+		}
+	}
+	return homes
 }

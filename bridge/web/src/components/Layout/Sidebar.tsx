@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   LayoutDashboard,
+  Activity,
   FolderKanban,
   MessageSquare,
   Clock,
@@ -23,6 +24,7 @@ const navItems = [
   // add a role / model on top of the current setup (SetupWizard add mode, append_only)
   { key: 'addRole', path: '/setup?add=1', icon: UserPlus },
   { key: 'dashboard', path: '/', icon: LayoutDashboard },
+  { key: 'usage', path: '/usage', icon: Activity },
   { key: 'roles', path: '/roles', icon: Users },
   { key: 'devices', path: '/devices', icon: Laptop },
   { key: 'projects', path: '/projects', icon: FolderKanban },

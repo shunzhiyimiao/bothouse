@@ -35,6 +35,8 @@ type ProjectSettingsUpdate struct {
 // ManagementServer provides an HTTP REST API for external management tools
 // (web dashboards, TUI clients, GUI desktop apps, Mac tray apps, etc.).
 type ManagementServer struct {
+	usageLedger *UsageLedger
+	usageImporter *UsageImporter
 	port        int
 	host        string // "" = all interfaces
 	token       string
@@ -155,10 +157,10 @@ type GlobalProviderInfo struct {
 		Model string `json:"model"`
 		Alias string `json:"alias,omitempty"`
 	} `json:"models,omitempty"`
-	Endpoints       map[string]string              `json:"endpoints,omitempty"`
-	AgentModels     map[string]string              `json:"agent_models,omitempty"`
-	AgentModelLists map[string][]GlobalModelEntry   `json:"agent_model_lists,omitempty"`
-	Codex           *GlobalCodexConfig              `json:"codex,omitempty"`
+	Endpoints       map[string]string             `json:"endpoints,omitempty"`
+	AgentModels     map[string]string             `json:"agent_models,omitempty"`
+	AgentModelLists map[string][]GlobalModelEntry `json:"agent_model_lists,omitempty"`
+	Codex           *GlobalCodexConfig            `json:"codex,omitempty"`
 }
 
 // GlobalModelEntry is a model entry inside AgentModelLists.
@@ -224,6 +226,8 @@ func (m *ManagementServer) Start() {
 
 func (m *ManagementServer) buildHandler(mux *http.ServeMux) http.Handler {
 	prefix := "/api/v1"
+
+	mux.HandleFunc(prefix+"/usage/", m.wrap(m.handleUsage))
 
 	// System
 	mux.HandleFunc(prefix+"/status", m.wrap(m.handleStatus))
@@ -1970,10 +1974,10 @@ func (m *ManagementServer) handleCCSwitchProviders(w http.ResponseWriter, r *htt
 // applying per-agent-type overrides for base_url, model, and models.
 func resolveGlobalProviderForAgent(g GlobalProviderInfo, agentType string) ProviderConfig {
 	pc := ProviderConfig{
-		Name:   g.Name,
-		APIKey: g.APIKey,
+		Name:    g.Name,
+		APIKey:  g.APIKey,
 		BaseURL: g.BaseURL,
-		Model:  g.Model,
+		Model:   g.Model,
 	}
 	if ep, ok := g.Endpoints[agentType]; ok && ep != "" {
 		pc.BaseURL = ep
