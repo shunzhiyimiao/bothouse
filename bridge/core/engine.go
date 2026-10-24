@@ -5463,6 +5463,9 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 				if fullResponse == "" && len(textParts) > 0 {
 					fullResponse = strings.Join(textParts, "")
 				}
+				if reset, ok := QuotaExhaustedReset(event); ok {
+					fullResponse = e.quotaExhaustedMessage(reset, agentSession, nil)
+				}
 
 				// Honour the NO_REPLY marker here too: background task
 				// notifications often end in a bare NO_REPLY, which must not
@@ -5564,9 +5567,12 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 			case EventError:
 				if event.Error != nil {
 					slog.Error("unsolicited agent error", "error", event.Error, "session", sessionKey)
-					userMsg := fmt.Sprintf(e.i18n.T(MsgError), event.Error)
+					userMsg := e.agentErrorMessage(event.Error)
 					if errors.Is(event.Error, ErrNoPublicAnswer) {
 						userMsg = e.i18n.T(MsgNoPublicAnswer)
+					}
+					if reset, ok := QuotaExhaustedReset(event); ok {
+						userMsg = e.quotaExhaustedMessage(reset, agentSession, nil)
 					}
 					e.send(p, replyCtx, userMsg)
 				}
@@ -6541,6 +6547,11 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			} else if fullResponse == "" && len(textParts) > 0 {
 				fullResponse = strings.Join(textParts, "")
 			}
+			// The adapter marked an exhausted quota; say which bot/model ran out so
+			// other bots in the channel are not blamed.
+			if reset, ok := QuotaExhaustedReset(event); ok {
+				fullResponse = e.quotaExhaustedMessage(reset, state.agentSession, replyAgent)
+			}
 			if input != nil && strings.TrimSpace(fullResponse) == "" {
 				state.mu.Lock()
 				state.eventsNeedResync = true
@@ -7197,7 +7208,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 					if errors.Is(event.Error, ErrTaskAlreadyCompleted) {
 						detail = e.i18n.T(MsgTaskAlreadyCompleted)
 					}
-					userMsg := fmt.Sprintf(e.i18n.T(MsgError), detail)
+					userMsg := e.agentErrorMessage(detail)
 					if errors.Is(event.Error, ErrEmptyAgentResponse) {
 						userMsg = e.i18n.T(MsgEmptyAgentResponse)
 					}
@@ -7209,6 +7220,9 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 							userMsg = e.i18n.T(h.msgKey)
 							break
 						}
+					}
+					if reset, ok := QuotaExhaustedReset(event); ok {
+						userMsg = e.quotaExhaustedMessage(reset, state.agentSession, replyAgent)
 					}
 					if errorAnswer != "" {
 						if !errorAnswerDelivered {
@@ -8633,13 +8647,13 @@ func formatElapsed(d time.Duration, streaming bool, lang Language) string {
 func replyFooterModel(session AgentSession, agent Agent) string {
 	if session != nil {
 		if getter, ok := session.(interface{ GetModel() string }); ok {
-			if model := strings.TrimSpace(getter.GetModel()); model != "" {
+			if model := displayModelName(getter.GetModel()); model != "" {
 				return model
 			}
 		}
 	}
 	if getter, ok := agent.(interface{ GetModel() string }); ok {
-		return strings.TrimSpace(getter.GetModel())
+		return displayModelName(getter.GetModel())
 	}
 	return ""
 }
