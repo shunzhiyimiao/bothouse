@@ -463,6 +463,8 @@ type Engine struct {
 	autoCompressEnabled   bool
 	autoCompressMaxTokens int
 	autoCompressMinGap    time.Duration
+	// nativeAutoCompactAt: last auto native compaction per interactive key, guarded by interactiveMu (native_compact.go).
+	nativeAutoCompactAt map[string]time.Time
 	// Cold-cache fresh start (maomao fork, see handoff.go)
 	coldFreshEnabled   bool
 	coldFreshIdle      time.Duration
@@ -641,6 +643,9 @@ type interactiveState struct {
 	pendingProviderAdd       *pendingProviderAddState
 	lastAutoCompressAt       time.Time
 	lastAutoCompressTokens   int
+	// autoCompactDue: the auto-compress check passed at a turn's end for an agent
+	// with native compaction; applyPendingAutoCompact runs it once the session is free.
+	autoCompactDue bool
 
 	// Unsolicited event reader: a background goroutine that consumes agent
 	// events between user-initiated turns (e.g. background task completions).
@@ -3399,7 +3404,7 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 	if e.applyGate(p, msg, session, interactiveKey) {
 		return
 	}
-	if e.nativeCompactRunning(interactiveKey) {
+	if e.nativeCompactRejectsUser(interactiveKey) {
 		e.reply(p, msg.ReplyCtx, e.i18n.T(MsgPreviousProcessing))
 		return
 	}
@@ -3553,7 +3558,8 @@ func (e *Engine) enqueueForBusySession(p Platform, msg *Message, interactiveKey 
 	e.interactiveMu.Lock()
 	// A running native /compact holds the session lock; what queues here runs
 	// when it ends (drainQueuedAfterNativeCompact). New user messages are
-	// turned away before this (nativeCompactRunning in handleMessage).
+	// turned away before this during a user /compact (nativeCompactRejectsUser
+	// in handleMessage), and queue here during an auto compaction.
 	behindCompact := e.nativeCompactions[interactiveKey] != nil
 	state, hasState := e.interactiveStates[interactiveKey]
 	if !hasState || state == nil {
@@ -4197,6 +4203,7 @@ func (e *Engine) processInteractiveMessageWith(p Platform, msg *Message, session
 	defer func() {
 		e.endResetTurn(resetKey)
 		e.applyPendingReset(resetKey)
+		e.applyPendingAutoCompact(interactiveKey, msg.SessionKey, session, sessions, agent, workspaceDir)
 	}()
 	// session.Unlock() is NOT deferred here — it is called explicitly in
 	// the drain loop below while holding state.mu to close the race window
@@ -6779,8 +6786,22 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 
 			// Auto-compress after finishing a turn, before sending any queued messages.
 			if triggerAutoCompress {
-				compressor, ok := e.agent.(ContextCompressor)
-				if ok && compressor.CompressCommand() != "" {
+				// Agents with native compaction (codex) compact on their own transport,
+				// which needs the session free: queue it for after this turn and the
+				// turns queued behind it (applyPendingAutoCompact), as /compact does.
+				state.mu.Lock()
+				autoAgent := state.agent
+				if autoAgent == nil {
+					autoAgent = e.agent
+				}
+				_, native := autoAgent.(NativeContextCompressor)
+				if native {
+					state.autoCompactDue = true
+				}
+				state.mu.Unlock()
+				if native {
+					slog.Info("auto-compress: native compaction queued for after the turn", "session", sessionKey)
+				} else if compressor, ok := e.agent.(ContextCompressor); ok && compressor.CompressCommand() != "" {
 					if pendingSend != nil {
 						if err := <-pendingSend; err != nil {
 							slog.Debug("async send error before compress", "error", err)
