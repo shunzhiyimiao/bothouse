@@ -619,6 +619,7 @@ type interactiveState struct {
 	resetHandoff             bool // session new --after-turn: queued messages move to the fresh session instead of being dropped; guarded by mu
 	agentSession             AgentSession
 	modeRestore              func()         // maomao fork: undoes the running turn's mode override (setTurnMode); guarded by mu
+	turnMode                 string         // maomao fork: mode applied by the running turn's override (setTurnMode); "" when none; guarded by mu
 	capacityFailed           bool           // maomao fork: last turn failed with "model at capacity"
 	promptTooLong            string         // maomao fork: last turn's "prompt is too long" error (takePromptTooLong)
 	promptTooLongQueued      *queuedMessage // maomao fork: the chained queued message that turn was, if any
@@ -2160,11 +2161,39 @@ func (e *Engine) startScheduledTurn(msg *Message, session *Session) {
 // messages chained after it).
 func (e *Engine) setTurnMode(state *interactiveState, as AgentSession, mode string) {
 	e.restoreTurnMode(state)
-	if restore := e.applyLiveModeOverride(as, mode); restore != nil {
+	state.mu.Lock()
+	agent := state.agent
+	state.mu.Unlock()
+	if restore := e.applyLiveModeOverride(agent, as, mode); restore != nil {
 		state.mu.Lock()
 		state.modeRestore = restore
+		state.turnMode = mode
 		state.mu.Unlock()
 	}
+}
+
+// turnAutoApproves reports whether the permission mode in effect for state's
+// current turn already grants every tool call, so permission requests that
+// reach the engine without a user to ask (cron/timer turns, background events
+// after a turn ends) follow it instead of being denied unconditionally. The
+// turn's own override (a cron job's Mode, applied by setTurnMode) wins;
+// otherwise the mode of the agent the session actually runs on (a workspace
+// agent changed by /mode, not necessarily e.agent).
+func (e *Engine) turnAutoApproves(state *interactiveState) bool {
+	state.mu.Lock()
+	turnMode, agent := state.turnMode, state.agent
+	state.mu.Unlock()
+	if turnMode != "" {
+		return isYoloModeStr(turnMode)
+	}
+	if agent == nil {
+		agent = e.agent
+	}
+	ma, ok := agent.(interface{ GetMode() string })
+	if !ok {
+		return false
+	}
+	return isYoloModeStr(ma.GetMode())
 }
 
 // restoreTurnMode switches back to the default mode if a turn's override is still on.
@@ -2172,6 +2201,7 @@ func (e *Engine) restoreTurnMode(state *interactiveState) {
 	state.mu.Lock()
 	restore := state.modeRestore
 	state.modeRestore = nil
+	state.turnMode = ""
 	state.mu.Unlock()
 	if restore != nil {
 		restore()
@@ -2179,8 +2209,10 @@ func (e *Engine) restoreTurnMode(state *interactiveState) {
 }
 
 // applyLiveModeOverride switches the live agent session to mode and returns the function that
-// switches it back to the agent's default; nil when mode is empty or the switch did not happen.
-func (e *Engine) applyLiveModeOverride(as AgentSession, mode string) (restore func()) {
+// switches it back to the default mode of agent, the agent the session runs on (a workspace
+// agent may differ from e.agent; nil falls back to e.agent); nil when mode is empty or the
+// switch did not happen.
+func (e *Engine) applyLiveModeOverride(agent Agent, as AgentSession, mode string) (restore func()) {
 	if mode == "" || as == nil {
 		return nil
 	}
@@ -2190,7 +2222,10 @@ func (e *Engine) applyLiveModeOverride(as AgentSession, mode string) (restore fu
 	}
 	return func() {
 		defaultMode := "default"
-		if ma, ok := e.agent.(interface{ GetMode() string }); ok {
+		if agent == nil {
+			agent = e.agent
+		}
+		if ma, ok := agent.(interface{ GetMode() string }); ok {
 			if m := ma.GetMode(); m != "" {
 				defaultMode = m
 			}
@@ -5495,6 +5530,7 @@ func (e *Engine) runUnsolicitedReader(ctx context.Context, cancel context.Cancel
 				state.mu.Lock()
 				autoApprove := state.approveAll || isYoloMode(state.agent)
 				state.mu.Unlock()
+				autoApprove = autoApprove || e.turnAutoApproves(state)
 
 				result := PermissionResult{Behavior: "deny", Message: "denied: no active user turn"}
 				if autoApprove {
@@ -6336,6 +6372,7 @@ func (e *Engine) processInteractiveEvents(state *interactiveState, session *Sess
 			state.mu.Lock()
 			autoApprove := state.approveAll || isYoloMode(state.agent)
 			state.mu.Unlock()
+			autoApprove = autoApprove || e.turnAutoApproves(state)
 
 			if autoApprove && !isAskQuestion {
 				slog.Debug("auto-approving (approve-all)", "request_id", event.RequestID, "tool", event.ToolName)
