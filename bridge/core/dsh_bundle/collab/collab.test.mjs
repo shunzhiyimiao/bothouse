@@ -2296,3 +2296,70 @@ test('cloud_web release names the claim it ends: a late release does not free a 
   assert.equal(ack().ok, true);
   assert.equal(hub.store.workspaceOwner(ws.id), null);
 });
+
+test('#144 attachments: stored on the message, shown publicly, forwarded to bots as images/files', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { Attachments } = await import('./attachments.mjs');
+  const { publicMessage } = await import('./store.mjs');
+  const files = new Attachments(join(mkdtempSync(join(tmpdir(), 'collab-att-')), 'attachments'));
+  const hub = makeHub();
+  const gw = new CloudWebGateway(hub, { token: 't', logger: quiet, files });
+  const ju = connect(gw, 'bot=ju&name=橘');
+  await settle();
+
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+  const attachments = files.save([
+    { name: 'shot.png', mime: 'image/png', data: png.toString('base64') },
+    { name: 'run.log', mime: 'text/plain', data: Buffer.from('boom').toString('base64') },
+  ]);
+  assert.equal(attachments.length, 2);
+  assert.deepEqual(files.read(attachments[0].id), png);
+  assert.equal(files.read('../etc/passwd'), undefined);
+
+  // A message may carry only attachments.
+  const { message } = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '', attachments });
+  const view = publicMessage(message, hub.store);
+  assert.deepEqual(view.attachments.map(a => [a.name, a.mime, a.size]), [['shot.png', 'image/png', 4], ['run.log', 'text/plain', 4]]);
+  assert.equal(hub.store.attachmentMeta(attachments[1].id).name, 'run.log');
+  assert.equal(hub.store.attachmentMeta('00000000-0000-0000-0000-000000000000'), undefined);
+
+  await settle();
+  const frame = ju.of('message').at(-1);
+  assert.deepEqual(frame.images, [{ mime_type: 'image/png', data: png.toString('base64'), file_name: 'shot.png' }]);
+  assert.deepEqual(frame.files, [{ mime_type: 'text/plain', data: Buffer.from('boom').toString('base64'), file_name: 'run.log' }]);
+
+  assert.throws(() => files.save([{ name: 'x', mime: 'text/plain', data: '' }]), /empty/);
+  assert.throws(() => hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '' }), /empty/);
+});
+
+test('#144 attachments: only png/jpeg/gif/webp up to 5 MB go to bots as images, the rest as files', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { Attachments, MAX_IMAGE_BYTES } = await import('./attachments.mjs');
+  const files = new Attachments(join(mkdtempSync(join(tmpdir(), 'collab-att-')), 'attachments'));
+  const b64 = (buf) => buf.toString('base64');
+  const saved = files.save([
+    { name: 'a.png', mime: 'image/png', data: b64(Buffer.from('png')) },
+    { name: 'b.svg', mime: 'image/svg+xml', data: b64(Buffer.from('<svg/>')) },
+    { name: 'c.heic', mime: 'image/heic', data: b64(Buffer.from('heic')) },
+    { name: 'd.jpg', mime: 'image/jpeg', data: b64(Buffer.alloc(MAX_IMAGE_BYTES + 1, 1)) },
+  ]);
+  const wire = files.wire(saved);
+  assert.deepEqual(wire.images.map(i => i.file_name), ['a.png']);
+  assert.deepEqual(wire.files.map(f => f.file_name), ['b.svg', 'c.heic', 'd.jpg']);
+});
+
+test('#144 oversized POST body gets a 413 response instead of a dropped connection', async () => {
+  const { createServer } = await import('node:http');
+  const { withBody } = await import('./plugin.mjs');
+  const server = createServer((req, res) => { withBody(req, res, async () => ({ ok: true }), true, 1024); });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  try {
+    const res = await fetch(`http://127.0.0.1:${server.address().port}/`, { method: 'POST', body: 'x'.repeat(256 * 1024) });
+    assert.equal(res.status, 413);
+    assert.equal((await res.json()).code, 'too-large');
+  } finally { server.close(); }
+});
