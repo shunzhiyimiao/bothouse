@@ -777,10 +777,10 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 	// the gate: only the owner's DMs do (see Engine.isDMOwner); other DMs are gated normally.
 	direct := !fromBot && m.GuildID == ""
 	if fromBot {
-		// Only an explicit <@me> in the text counts; reply pings ("↪ 已插入" quoting a message)
-		// and role/everyone mentions from bots are ignored. Everything else a teammate says
-		// arrives as listen-only context (core never starts a turn from it).
-		mentioned = strings.Contains(m.Content, "<@"+p.botID+">") || strings.Contains(m.Content, "<@!"+p.botID+">")
+		// Bot messages must be addressed by an explicit mention in their body. Discord may
+		// include the replied-to author in m.Mentions, which would turn ordinary bot replies
+		// into a relay loop. A teammate can address this bot by user or managed-role mention.
+		mentioned = hasExplicitDiscordBotMention(m.Content, p.botID, botRoleID)
 		if isBotNotice(m.Content) {
 			return
 		}
@@ -849,7 +849,11 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		}
 	}
 
-	rctx.lead = p.dispatchedBy(fromBot, mentioned, m.Author.ID, m.Content)
+	// A bot may hand work to this bot by opening its message with our name instead of
+	// a Discord mention. Classify that before recording the lead return context; the
+	// later bot-message branch also marks it Mentioned, but by then this context is set.
+	calledByName := fromBot && nameCalled(m.Content, p.botName, teamBotNames(p.botID)...)
+	rctx.lead = p.dispatchedBy(fromBot, mentioned || calledByName, m.Author.ID, m.Content)
 	// A person's message hands this sub's answer back to the lead only when the text @-s this sub
 	// itself and does not reply to the lead. Being only the reply target is not "@lead and @sub
 	// together"; replying to the lead is talking to her, so she answers herself (gate.py co_mention
@@ -1770,6 +1774,13 @@ func isDiscordBotMention(m *discordgo.MessageCreate, botID string, botRoleID str
 		}
 	}
 	return botRoleID != "" && strings.Contains(m.Content, "<@&"+botRoleID+">")
+}
+
+func hasExplicitDiscordBotMention(content string, botID string, botRoleID string) bool {
+	if strings.Contains(content, "<@"+botID+">") || strings.Contains(content, "<@!"+botID+">") {
+		return true
+	}
+	return botRoleID != "" && strings.Contains(content, "<@&"+botRoleID+">")
 }
 
 func (p *Platform) botRoleIDForGuild(guildID string) string {
