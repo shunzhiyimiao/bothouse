@@ -625,23 +625,31 @@ func extractHubSource(dir string) error {
 	})
 }
 
+// portFree: nothing listens on port. Both the wildcard and 127.0.0.1 are tried: a listener on
+// *:port does not stop a bind on 127.0.0.1:port (macOS), and the reverse, so either failing = taken.
 func portFree(port int) bool {
-	l, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(port))
-	if err != nil {
-		return false
+	for _, host := range []string{"", "127.0.0.1"} {
+		l, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+		if err != nil {
+			return false
+		}
+		l.Close()
 	}
-	l.Close()
 	return true
 }
 
 // pickHubPort: the hub's own default port when free, else one the OS hands out.
-func pickHubPort() int {
-	if portFree(localHubPort) {
-		return localHubPort
+func pickHubPort() int { return PickFreePort(localHubPort) }
+
+// PickFreePort: preferred when nothing listens on it, else a free port the OS hands out (the
+// hub, the setup wizard's 9820 and the gate's 9930 all pick this way).
+func PickFreePort(preferred int) int {
+	if preferred > 0 && portFree(preferred) {
+		return preferred
 	}
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		return localHubPort
+		return preferred
 	}
 	defer l.Close()
 	return l.Addr().(*net.TCPAddr).Port

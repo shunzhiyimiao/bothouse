@@ -22,6 +22,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -223,6 +224,17 @@ func (s WizardSnapshot) project(name string) (WizardExistingProject, bool) {
 		}
 	}
 	return WizardExistingProject{}, false
+}
+
+// pointsAtGatePort: a project's gate_url is a wizard URL on 127.0.0.1:port (an existing install).
+func (s WizardSnapshot) pointsAtGatePort(port int) bool {
+	for _, p := range s.Projects {
+		u, err := url.Parse(p.GateURL)
+		if err == nil && isWizardGateURL(p.GateURL) && u.Port() == strconv.Itoa(port) {
+			return true
+		}
+	}
+	return false
 }
 
 // WizardExistingBot is a Discord bot already in the local config. Token and options stay server-side.
@@ -1009,6 +1021,21 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 		res.JevHint = JevHint(req.Language, usable, res.Hardware, pl.fallbackName)
 		finishWizardResult(res, req, pl, usable)
 		return res
+	}
+
+	// The gate port (keepGatePort): kept when free, this data dir's gate is on it, or an older gate
+	// without /whoami is on it and this config's gate_urls already point there; else a new port. Picked only now, after the tokens checked out and not on
+	// a dry run, so a failed or dry-run wizard writes nothing; saved before the plan below runs again
+	// inside the lock and writes the gate_urls with it.
+	if req.gateOn() {
+		if port := pickGatePort(env.DataDir, snap.pointsAtGatePort(LocalGatePort())); port != LocalGatePort() {
+			if ps, ok := env.Store.(interface{ SetGatePort(int) error }); ok {
+				if err := ps.SetGatePort(port); err != nil {
+					return fail("gate port", err)
+				}
+			}
+			SetLocalGatePort(port)
+		}
 	}
 
 	// 3. one locked read-modify-write of config.toml, planned on what is there now
@@ -1820,9 +1847,9 @@ func cloudWebTeamWrites(writes []WizardProjectWrite, team []SetupTeamEntry, s Wi
 			clearWizardGate(w, ex.GateURL, ex.GateFallback)
 			continue
 		}
-		gate, fb := defaultGateURL+"?bot="+t.Project, "context"
+		gate, fb := localGateURL()+"?bot="+t.Project, "context"
 		if t.Project == fallback {
-			gate, fb = defaultGateURL, "reply"
+			gate, fb = localGateURL(), "reply"
 		}
 		w.GateURL, w.GateFallback = &gate, &fb
 	}
@@ -1908,9 +1935,9 @@ func feishuTeamWrites(writes []WizardProjectWrite, team []SetupTeamEntry, s Wiza
 		}
 		isLead := t.Project == fallback
 		if ex.GateURL == "" || isWizardGateURL(ex.GateURL) {
-			gate := defaultGateURL + "?bot=" + t.Project
+			gate := localGateURL() + "?bot=" + t.Project
 			if isLead {
-				gate = defaultGateURL
+				gate = localGateURL()
 			}
 			w.GateURL = &gate
 		}
@@ -1975,7 +2002,7 @@ func soloGateWrites(writes []WizardProjectWrite, project, platform string, s Wiz
 		}
 	}
 	if ex.GateURL == "" || isWizardGateURL(ex.GateURL) {
-		gate := defaultGateURL
+		gate := localGateURL()
 		w.GateURL = &gate
 	}
 	if ex.GateFallback == "" || (isWizardGateURL(ex.GateURL) && (ex.GateFallback == "reply" || ex.GateFallback == "context")) {
@@ -2000,9 +2027,23 @@ func validateWizardProvider(p WizardProvider) error {
 	return nil
 }
 
-// isWizardGateURL reports whether u is a gate_url the wizard itself writes.
+// localGateURL: the /decide URL of this data dir's gate (gateAddr, config [gate] port).
+func localGateURL() string { return "http://" + localGateAddr() + "/decide" }
+
+// isWizardGateURL reports whether u is a gate_url the wizard itself writes: /decide (and ?bot=) on
+// 127.0.0.1 at the gate port in use, the old fixed 9930, or a port this process moved away from.
 func isWizardGateURL(u string) bool {
-	return u == defaultGateURL || strings.HasPrefix(u, defaultGateURL+"?bot=")
+	rest, ok := strings.CutPrefix(u, "http://127.0.0.1:")
+	if !ok {
+		return false
+	}
+	port, path, ok := strings.Cut(rest, "/")
+	if !ok || (path != "decide" && !strings.HasPrefix(path, "decide?bot=")) {
+		return false
+	}
+	gateAddrMu.RLock()
+	defer gateAddrMu.RUnlock()
+	return knownGatePorts[port] || "127.0.0.1:"+port == gateAddr
 }
 
 func csvSet(s string) []string {
@@ -2081,9 +2122,9 @@ func mergeTeamWrites(writes []WizardProjectWrite, team []SetupTeamEntry, existin
 			continue
 		}
 		if ex.GateURL == "" || isWizardGateURL(ex.GateURL) {
-			gate := defaultGateURL + "?bot=" + t.Project
+			gate := localGateURL() + "?bot=" + t.Project
 			if isLead {
-				gate = defaultGateURL
+				gate = localGateURL()
 			}
 			w.GateURL = &gate
 		}
