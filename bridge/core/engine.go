@@ -575,6 +575,8 @@ type Engine struct {
 	// Data directory for socket path injection
 	dataDir        string
 	publicProgress *PublicProgress
+	productPyBin   atomic.Value // string: bin dir holding the product python3, resolved once in Start (role_env.go)
+	productPyWG    sync.WaitGroup // the Start-time lookup above; Stop waits for it (role_env.go)
 
 	// Team mode (#139 C): workspace -> chat channel exit and the asks waiting for an answer.
 	teamExit     teamExitState
@@ -2791,6 +2793,7 @@ func (e *Engine) ExecuteHeartbeat(sessionKey, prompt string, silent bool) error 
 }
 
 func (e *Engine) Start() error {
+	e.resolveRoleProductPython()
 	var startErrs []error
 	readyCount := 0
 	pendingCount := 0
@@ -2895,6 +2898,7 @@ func (e *Engine) Stop() error {
 	// Cancellation requests shutdown; joining ensures no accepted message or
 	// event reader can persist state after Stop returns.
 	e.messageWorkers.Wait()
+	e.productPyWG.Wait() // the role-PATH python3 link is not written into the data dir after Stop
 	if len(errs) > 0 {
 		return fmt.Errorf("engine stop errors: %v", errs)
 	}
@@ -4855,22 +4859,7 @@ func (e *Engine) getOrCreateInteractiveStateWith(sessionKey string, p Platform, 
 
 	// Inject per-session env vars so the agent subprocess can call `cc-connect cron add` etc.
 	if inj, ok := agent.(SessionEnvInjector); ok {
-		envVars := []string{
-			"CC_PROJECT=" + e.name,
-			"CC_SESSION_KEY=" + ccKey,
-		}
-		if e.dataDir != "" {
-			envVars = append(envVars, "CC_DATA_DIR="+e.dataDir)
-		}
-		if exePath, err := os.Executable(); err == nil {
-			binDir := filepath.Dir(exePath)
-			if curPath := os.Getenv("PATH"); curPath != "" {
-				envVars = append(envVars, "PATH="+binDir+string(filepath.ListSeparator)+curPath)
-			} else {
-				envVars = append(envVars, "PATH="+binDir)
-			}
-		}
-		inj.SetSessionEnv(envVars)
+		inj.SetSessionEnv(e.roleSessionEnv(ccKey))
 	}
 	e.applySessionModel(agent, ccKey)
 	e.applySessionInstructions(agent, ccKey)
@@ -17390,17 +17379,7 @@ func (e *Engine) handleTrackedRelay(ctx context.Context, fromProject, sourceSess
 	}()
 
 	if inj, ok := agent.(SessionEnvInjector); ok {
-		envVars := []string{
-			"CC_PROJECT=" + e.name,
-			"CC_SESSION_KEY=" + sourceSessionKey,
-		}
-		if exePath, err := os.Executable(); err == nil {
-			binDir := filepath.Dir(exePath)
-			if curPath := os.Getenv("PATH"); curPath != "" {
-				envVars = append(envVars, "PATH="+binDir+string(filepath.ListSeparator)+curPath)
-			}
-		}
-		inj.SetSessionEnv(envVars)
+		inj.SetSessionEnv(e.roleSessionEnv(sourceSessionKey))
 	}
 	e.applySessionModel(agent, relaySessionKey)
 	e.applySessionInstructions(agent, relaySessionKey)
