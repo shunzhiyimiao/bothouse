@@ -10,6 +10,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -19,8 +20,10 @@ import (
 	"time"
 )
 
+// teamBoardInterval is how often the lead refreshes its boards (a var so tests can shorten it).
+var teamBoardInterval = 10 * time.Second
+
 const (
-	teamBoardInterval  = 10 * time.Second
 	teamBoardWorkAfter = time.Minute
 	teamBoardTaskRunes = 40
 	teamBoardFileExt   = ".board"
@@ -31,6 +34,11 @@ type boardChat struct {
 	SessionKey string `json:"session_key"`
 	MessageID  string `json:"message_id"`
 	Content    string `json:"content"`
+	// GaveUpAt is when the platform stopped letting us edit this board (e.g.
+	// it sits in an archived thread). Until the channel has newer activity the
+	// board is left alone: no retries and no new board that would bump the
+	// thread. Newer activity earns one more try, so a reopened thread heals.
+	GaveUpAt time.Time `json:"gave_up_at,omitzero"`
 }
 
 // SetTeamBoard turns the live board on or off. It only runs on the primary role; a
@@ -107,8 +115,9 @@ var (
 )
 
 // retireTeamBoards deletes this project's old boards (e.g. after the lead moved
-// to another bot), then the state file. Boards that fail stay in the file so
-// the next start tries again.
+// to another bot), then the state file. Boards that fail with a temporary error
+// stay in the file so the next start tries again; boards the platform reports as
+// unremovable are dropped after one try.
 func (e *Engine) retireTeamBoards() {
 	statePath := filepath.Join(e.team.dir, e.name+teamBoardFileExt)
 	tick := time.NewTicker(teamBoardRetireEvery)
@@ -138,6 +147,12 @@ func (e *Engine) retireTeamBoards() {
 				ctx, cancel := context.WithTimeout(e.ctx, 15*time.Second)
 				err := remover.RemoveBoard(ctx, b.SessionKey, b.MessageID)
 				cancel()
+				if errors.Is(err, ErrBoardUnremovable) {
+					// Retrying cannot help (archived thread, lost access): forget it.
+					slog.Warn("team board: old board cannot be removed, giving up", "chat", chat, "error", err)
+					delete(boards, chat)
+					continue
+				}
 				if err != nil {
 					slog.Warn("team board: remove old board failed", "chat", chat, "error", err)
 					continue
@@ -163,6 +178,15 @@ func (e *Engine) retireTeamBoards() {
 // updateTeamBoards posts or edits each channel's board; it reports whether boards changed.
 func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat) bool {
 	// A channel gets a board once real work shows up there; after that it stays and is kept current.
+	// lastActive is each channel's newest work time, used to retry a given-up board.
+	lastActive := map[string]time.Time{}
+	noteActive := func(chat string, ts ...time.Time) {
+		for _, t := range ts {
+			if t.After(lastActive[chat]) {
+				lastActive[chat] = t
+			}
+		}
+	}
 	for _, f := range files {
 		for _, task := range f.Tasks {
 			if !listedTaskState(task.State) || !safeTaskURL(task.URL) || task.SessionKey == "" {
@@ -172,18 +196,32 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 			if boards[chat] == nil {
 				boards[chat] = &boardChat{SessionKey: task.SessionKey}
 			}
+			noteActive(chat, task.UpdatedAt)
+			for _, m := range task.Members {
+				noteActive(chat, m.UpdatedAt)
+			}
 		}
 		for _, s := range f.Sessions {
 			if !s.Worked || s.Chat == "" {
 				continue
 			}
-			if _, ok := boards[chatOf(s.Key)]; !ok {
-				boards[chatOf(s.Key)] = &boardChat{SessionKey: s.Key}
+			chat := chatOf(s.Key)
+			if _, ok := boards[chat]; !ok {
+				boards[chat] = &boardChat{SessionKey: s.Key}
 			}
+			noteActive(chat, s.Since, s.DoneAt)
 		}
 	}
 	changed := false
 	for chat, b := range boards {
+		if !b.GaveUpAt.IsZero() {
+			if !lastActive[chat].After(b.GaveUpAt) {
+				continue
+			}
+			// New activity since we gave up: try once more (thread may be reopened).
+			b.GaveUpAt = time.Time{}
+			changed = true
+		}
 		content := renderTeamBoardWithTasks(files, chat, e.i18n.CurrentLang())
 		if content == b.Content {
 			continue
@@ -201,6 +239,16 @@ func (e *Engine) updateTeamBoards(files []teamFile, boards map[string]*boardChat
 		if id != "" && id != b.MessageID {
 			b.MessageID = id
 			changed = true
+		}
+		if errors.Is(err, ErrBoardUnremovable) {
+			slog.Warn("team board: board can no longer be edited, giving up until new activity", "chat", chat, "error", err)
+			// Never earlier than the activity just seen, so it is not retried again.
+			b.GaveUpAt = time.Now()
+			if lastActive[chat].After(b.GaveUpAt) {
+				b.GaveUpAt = lastActive[chat]
+			}
+			changed = true
+			continue
 		}
 		if err != nil {
 			slog.Warn("team board: update failed", "chat", chat, "error", err)
