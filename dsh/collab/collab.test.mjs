@@ -126,7 +126,7 @@ test('team exit: forwards asks and returns answers to the recorded workspace', a
   const ws = hub.store.createWorkspace(1);
   hub.setMember({ id: 'ds', name: 'DeepSeek', kind: 'dsh', online: true });
   new TeamExit(hub);
-  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[ask]\n需要一个答案' });
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[ask]\n需要一个答案\n自验：无需\n类别：方向' });
   await tick();
   const forwarded = hub.store.page(1, undefined, 10).find(m => m.author_kind === 'system');
   assert.ok(forwarded);
@@ -1651,7 +1651,7 @@ test('tasks: rooms snapshots track dispatch, return, rework and acceptance witho
   const { message } = hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: 'result' });
   tasks.handBack(task.id, { actor: 'ds', messageId: message.id });
   assert.deepEqual(latest(), [0, 0]);
-  tasks.review(task.id, { actor: 'lead', verdict: 'rework' });
+  tasks.review(task.id, { actor: 'lead', verdict: 'rework', note: '再补一段' });
   assert.deepEqual(latest(), [0, 1]);
   tasks.handBack(task.id, { actor: 'ds', messageId: message.id });
   tasks.review(task.id, { actor: 'lead', verdict: 'done' });
@@ -1920,7 +1920,7 @@ test('tasks API: owner acts as owner, bots name themselves with the bot token, o
   };
   assert.equal(tasksRoute({ method: 'GET', headers: {} }, {}, new URL('http://x/collab/api/state'), { tasks, gateway: gw, owner: () => true }), undefined);
   assert.equal((await call('POST', '/collab/api/rooms/1/tasks', { title: 'x', owner: 'ds', actor: 'lead' })).status, 401);
-  const made = await call('POST', '/collab/api/rooms/1/tasks', { title: '写文档', owner: 'ds', actor: 'lead' }, { token: 't' });
+  const made = await call('POST', '/collab/api/rooms/1/tasks', { title: '写文档', owner: 'ds', actor: 'lead', ref: '无（新建）' }, { token: 't' });
   assert.equal(made.status, 200);
   assert.equal(made.json.task.created_by, 'lead');
   const id = made.json.task.id;
@@ -1973,7 +1973,7 @@ test('tasks identity: the bot token cannot impersonate the owner or review; a so
   assert.equal(ack.ok, true);
   assert.equal(ack.task.status, 'done');
   // A frame dispatch is recorded as the sending bot.
-  lead.frame({ type: 'task', action: 'assign', reply_ctx: 'room-1', title: '再写一个', owner: 'ds', actor: 'whale', ref: 'r3' });
+  lead.frame({ type: 'task', action: 'assign', reply_ctx: 'room-1', title: '再写一个', owner: 'ds', actor: 'whale', ref: 'r3', task_ref: '无（新建）' });
   await new Promise(r => setImmediate(r));
   assert.equal(lead.of('task_ack')[1].task.created_by, 'lead');
 });
@@ -2256,7 +2256,7 @@ test('team exit: asks and reports go to the chat channel that owns the workspace
   ju.frame({ type: 'team_workspace', ref_id: 'c2', op: 'claim', reply_ctx: 'room-2', workspace_id: roomKey(ws.id) });
   await tick();
   assert.equal(ju.of('team_workspace_ack').at(-1).ok, true);
-  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[ask]\n要答案' });
+  hub.post(ws.id, { authorKind: 'role', author: 'ds', name: 'DeepSeek', text: '[ask]\n要答案\n自验：无需\n类别：方向' });
   await tick();
   assert.ok(hub.store.page(2, undefined, 10).some(m => m.author_kind === 'system' && /要答案/.test(m.text)), 'ask reaches dev, the new owner');
   assert.equal(hub.store.page(1, undefined, 20).some(m => m.author_kind === 'system' && /要答案/.test(m.text)), false);
@@ -3590,6 +3590,47 @@ test('block B: native and CLI members receive image and file blocks via shared w
   await ds.close();
 });
 
+test('block B: DSH refusing one image of a batch drops only that image and tells the channel', async () => {
+  const files = new Attachments(mkdtempSync(join(tmpdir(), 'blockb-partial-')));
+  const attachments = files.save([
+    { name: 'huge.png', mime: 'image/png', data: Buffer.from('huge').toString('base64') },
+    { name: 'small.png', mime: 'image/png', data: Buffer.from('small').toString('base64') },
+  ]);
+  const native = fakeDsh();
+  const hub = makeHub();
+  const ds = native.attach(hub, [{ id: 'native', name: 'Native' }]);
+  ds.rt.files = files;
+  const pixelLimit = 'Image exceeds the configured decoded-pixel limit.';
+  native.ctx.attachments = {
+    admitEncodedFile: async f => ({ attachmentId: f.name, name: f.name }),
+    admitPromptContent: async parts => {
+      if (parts.some(p => p.type === 'image' && Buffer.from(p.data, 'base64').toString() === 'huge')) throw new Error(pixelLimit);
+      return parts.map(p => ({ type: 'image', attachment: { attachmentId: Buffer.from(p.data, 'base64').toString() } }));
+    },
+  };
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@Native check', attachments });
+  await settle();
+  const agent = native.sessions.get(native.made[0]);
+  assert.equal(agent.prompts.length, 1);
+  const content = agent.prompts[0].content;
+  assert.match(content[0].text, /@Native check/);
+  assert.match(content[0].text, /huge\.png: attachment not delivered \(Image exceeds the configured decoded-pixel limit\.\)/);
+  assert.doesNotMatch(content[0].text, /small\.png: attachment not delivered/);
+  assert.deepEqual(content.slice(1), [{ type: 'image', attachment: { attachmentId: 'small' } }]);
+  const note = hub.store.page(1, undefined, 20).find(m => m.author_kind === 'system' && /附件没送到/.test(m.text));
+  assert.ok(note, 'channel shows a system note for the dropped attachment');
+  assert.match(note.text, /Native/);
+  assert.match(note.text, /huge\.png（Image exceeds the configured decoded-pixel limit\.）/);
+  assert.doesNotMatch(note.text, /small\.png/);
+  native.turn(agent, ['received']);
+  await settle();
+  assert.ok(hub.store.page(1, undefined, 20).some(m => m.text === 'received'));
+  const trigger = hub.store.page(1, undefined, 20).find(m => m.text === '@Native check');
+  assert.ok(hub.store.binding('native', 1).context_cursor >= trigger.id, 'cursor advanced past the trigger');
+  assert.equal(agent.prompts.length, 1, 'the system note does not start another turn');
+  await ds.close();
+});
+
 test('block B: DSH rejecting an image batch still delivers the text and advances', async () => {
   const files = new Attachments(mkdtempSync(join(tmpdir(), 'blockb-reject-')));
   const attachments = files.save([{ name: 'a.png', mime: 'image/png', data: Buffer.from('png').toString('base64') }]);
@@ -3607,6 +3648,58 @@ test('block B: DSH rejecting an image batch still delivers the text and advances
   assert.equal(agent.prompts.length, 1);
   assert.match(agent.prompts[0].content[0].text, /a\.png: attachment not delivered \(too many images\)/);
   assert.equal(agent.prompts[0].content.length, 1);
+  native.turn(agent, ['received']);
+  await settle();
+  assert.ok(hub.store.page(1, undefined, 20).some(m => m.text === 'received'));
+  await ds.close();
+});
+
+test('block B: DSH batch limit keeps the images that fit and notes the rest once', async () => {
+  const files = new Attachments(mkdtempSync(join(tmpdir(), 'blockb-limit-')));
+  const attachments = files.save(['a', 'b', 'c'].map(n => ({ name: `${n}.png`, mime: 'image/png', data: Buffer.from(n).toString('base64') })));
+  const native = fakeDsh();
+  const hub = makeHub();
+  const ds = native.attach(hub, [{ id: 'native', name: 'Native' }]);
+  ds.rt.files = files;
+  native.ctx.attachments = {
+    admitEncodedFile: async f => ({ attachmentId: f.name, name: f.name }),
+    admitPromptContent: async parts => {
+      if (parts.length > 1) throw new Error('too many images');
+      return parts.map(p => ({ type: 'image', attachment: { attachmentId: Buffer.from(p.data, 'base64').toString() } }));
+    },
+  };
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@Native check', attachments });
+  await settle();
+  const agent = native.sessions.get(native.made[0]);
+  const content = agent.prompts[0].content;
+  assert.deepEqual(content.slice(1), [{ type: 'image', attachment: { attachmentId: 'a' } }]);
+  assert.match(content[0].text, /b\.png: attachment not delivered \(too many images\)/);
+  assert.match(content[0].text, /c\.png: attachment not delivered \(too many images\)/);
+  const notes = hub.store.page(1, undefined, 20).filter(m => m.author_kind === 'system' && /附件没送到/.test(m.text));
+  assert.equal(notes.length, 1);
+  assert.match(notes[0].text, /b\.png（too many images）；c\.png（too many images）/);
+  assert.doesNotMatch(notes[0].text, /a\.png/);
+  await ds.close();
+});
+
+test('block B: DSH refusing every image of a batch delivers the text alone and notes all of them', async () => {
+  const files = new Attachments(mkdtempSync(join(tmpdir(), 'blockb-allreject-')));
+  const attachments = files.save(['a', 'b'].map(n => ({ name: `${n}.png`, mime: 'image/png', data: Buffer.from(n).toString('base64') })));
+  const native = fakeDsh();
+  const hub = makeHub();
+  const ds = native.attach(hub, [{ id: 'native', name: 'Native' }]);
+  ds.rt.files = files;
+  native.ctx.attachments = {
+    admitEncodedFile: async f => ({ attachmentId: f.name, name: f.name }),
+    admitPromptContent: async () => { throw new Error('pixel limit'); },
+  };
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@Native check', attachments });
+  await settle();
+  const agent = native.sessions.get(native.made[0]);
+  assert.equal(agent.prompts[0].content.length, 1);
+  const notes = hub.store.page(1, undefined, 20).filter(m => m.author_kind === 'system' && /附件没送到/.test(m.text));
+  assert.equal(notes.length, 1);
+  assert.match(notes[0].text, /a\.png（pixel limit）；b\.png（pixel limit）/);
   native.turn(agent, ['received']);
   await settle();
   assert.ok(hub.store.page(1, undefined, 20).some(m => m.text === 'received'));
