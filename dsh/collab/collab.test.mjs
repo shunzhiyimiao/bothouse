@@ -1030,6 +1030,21 @@ test('roster: a local CLI member is created without a model check and survives r
   assert.equal(reloaded.config.get('cc').cli, 'codex');
 });
 
+test('roster: editing a CLI member without permissionPreset keeps the stored tier', async () => {
+  const hub = makeHub();
+  const members = fakeDsh().attach(hub, []);
+  const roster = new Roster(hub, members, fakeLlm());
+  roster.load([]);
+  await roster.create({ name: 'CC', cli: 'claude', permissionPreset: 'danger-full-access' });
+  assert.equal(hub.memberView().find(m => m.id === 'cc').permissionPreset, 'danger-full-access');
+  const kept = await roster.update('cc', { name: 'CC', cli: 'claude', avatar: 'dragon' });
+  assert.equal(kept.permissionPreset, 'danger-full-access', 'absent tier keeps the old one, not the default');
+  assert.equal(hub.store.member('cc').permission_preset, 'danger-full-access');
+  const changed = await roster.update('cc', { name: 'CC', cli: 'claude', permissionPreset: 'read-only' });
+  assert.equal(changed.permissionPreset, 'read-only');
+  await assert.rejects(roster.update('cc', { name: 'CC', cli: 'claude', permissionPreset: 'yolo' }), /permissionPreset must be one of/);
+});
+
 test('store: a v3 database gains the cli column and keeps its members', async () => {
   const { mkdtempSync } = await import('node:fs');
   const { join } = await import('node:path');
@@ -3744,3 +3759,76 @@ test('later: empty or short key file is regenerated to 32 bytes; old tickets sto
 });
 import { createHmac as createHmacTest } from 'node:crypto';
 function createHmacForTest(key, payload) { return createHmacTest('sha256', key).update(payload).digest('base64url'); }
+
+// CLI member tool approval follows the member's DSH permission preset (cli-member.mjs presetDecision).
+const ACP_PERMISSION = {
+  sessionId: 's1',
+  toolCall: { toolCallId: 't1', title: 'Bash', rawInput: { command: 'rm -rf build' } },
+  options: [{ optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' }, { optionId: 'reject-once', name: 'Reject', kind: 'reject_once' }],
+};
+
+function cliPermissionRun(hub, permissionPreset, outcomes) {
+  const dsh = fakeDsh();
+  const agent = {
+    async ask(_text, _room, _onText, _onTool, opts) { outcomes.push(await opts.onPermission(ACP_PERMISSION)); return '好'; },
+    close() {},
+  };
+  return new DshMembers(hub, { ctx: dsh.ctx, createUserMessage: m => m, createCliMember: () => agent, workspacePath: '/w', logger: quiet },
+    [{ id: 'cc', name: 'CC', cli: 'claude', ...(permissionPreset ? { permissionPreset } : {}) }]);
+}
+const permCards = hub => hub.store.page(1, undefined, 20).filter(m => m.card !== null && JSON.parse(m.card).kind === 'permission');
+
+test('CLI member, Full access preset: tool call allowed at once, no card', async () => {
+  const hub = makeHub();
+  const outcomes = [];
+  cliPermissionRun(hub, 'danger-full-access', outcomes);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 清一下' });
+  await settle();
+  assert.deepEqual(outcomes, [{ outcome: 'selected', optionId: 'allow-once' }]);
+  assert.equal(permCards(hub).length, 0);
+});
+
+test('CLI member, Read Only preset: tool call refused, no card', async () => {
+  const hub = makeHub();
+  const outcomes = [];
+  cliPermissionRun(hub, 'read-only', outcomes);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 清一下' });
+  await settle();
+  assert.deepEqual(outcomes, [{ outcome: 'selected', optionId: 'reject-once' }]);
+  assert.equal(permCards(hub).length, 0);
+});
+
+for (const [decision, optionId] of [['allow', 'allow-once'], ['deny', 'reject-once']]) {
+  test(`CLI member, default Workspace Write preset: card in the room, ${decision} goes back to ACP as ${optionId}`, async () => {
+    const hub = makeHub();
+    const outcomes = [];
+    cliPermissionRun(hub, undefined, outcomes);
+    hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 清一下' });
+    await settle();
+    const [card] = permCards(hub);
+    assert.ok(card, 'a permission card is posted');
+    assert.equal(card.author, 'cc');
+    assert.match(card.text, /权限请求\*\* Bash/);
+    assert.match(card.text, /rm -rf build/);
+    assert.deepEqual(JSON.parse(card.card).actions.map(a => a.decision), ['allow', 'deny'], 'only the buttons ACP offered');
+    assert.deepEqual(outcomes, []);
+    hub.approvals.decide(card.id, decision);
+    await settle();
+    assert.deepEqual(outcomes, [{ outcome: 'selected', optionId }]);
+  });
+}
+
+test('CLI member without allow_always: typed 允许所有 goes back to ACP as allow-once and the card shows allowed', async () => {
+  const hub = makeHub();
+  const outcomes = [];
+  cliPermissionRun(hub, undefined, outcomes);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 清一下' });
+  await settle();
+  const [card] = permCards(hub);
+  assert.ok(card, 'a permission card is posted');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '允许所有' });
+  await settle();
+  assert.deepEqual(outcomes, [{ outcome: 'selected', optionId: 'allow-once' }]);
+  const state = JSON.parse(hub.store.message(card.id).card).state;
+  assert.equal(state, 'allowed', 'card shows what ACP got, not 已允许所有');
+});
