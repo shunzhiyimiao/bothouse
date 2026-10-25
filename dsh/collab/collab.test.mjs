@@ -9,7 +9,7 @@ import { DshMembers, finalText, describeReason, friendlyFailure, memberStatus } 
 import { resolveConfig, installApprovalAnswerer } from './plugin.mjs';
 import { LeadState } from './lead-state.mjs';
 import { Roster } from './roster.mjs';
-import { promptText, teamModeRules, TurnProgress } from './dsh-member.mjs';
+import { promptText, teamModeRules, TurnProgress, workspaceHint } from './dsh-member.mjs';
 import { Tasks, CHECK_AFTER_S } from './tasks.mjs';
 import { tasksRoute, ownMessageRoute } from './plugin.mjs';
 import { TeamExit } from './team-exit.mjs';
@@ -4199,4 +4199,120 @@ test('CLI member: a session that could not be resumed gets its MEMORY.md and the
     delete process.env.GATE_PORT;
     await gate.close();
   }
+});
+
+// #597 G24: a DSH primary opens a workspace with its later ticket; the route opens the task and wakes the owner.
+async function g24Setup(members = ['ju']) {
+  const { workspacesRoute } = await import('./plugin.mjs');
+  const hub = makeHub(); hub.store.ensureRoom(2, 'other');
+  for (const id of members) hub.setMember({ id, name: id, kind: 'dsh', online: true });
+  let lead = members[0];
+  hub.leadState = { selected: () => lead };
+  let clock = 5000;
+  const tasks = new Tasks(hub, { now: () => clock, start: false });
+  hub.tasks = tasks;
+  const later = new Later(hub, ':memory:', () => true, { start: false });
+  const nudged = [];
+  const dsh = { nudge: (id, msg) => { nudged.push([id, msg.room_id, msg.author_kind]); return true; } };
+  const gateway = new CloudWebGateway(hub, { token: 'secret', logger: quiet });
+  const call = async (ticket, body, room = 1) => {
+    const req = Readable.from([Buffer.from(JSON.stringify(body))]); req.method = 'POST';
+    req.headers = ticket === undefined ? {} : { 'x-later-ticket': ticket };
+    const res = { writeHead(status) { this.status = status; }, end(data) { this.body = JSON.parse(data); } };
+    await workspacesRoute(req, res, new URL(`http://x/collab/api/rooms/${room}/workspaces`), { store: hub.store, hub, gateway, owner: () => false, later, tasks, dsh });
+    return res;
+  };
+  return { hub, tasks, later, nudged, call, setLead: id => { lead = id; }, now: () => clock };
+}
+
+test('G24: single primary opens a workspace by ticket; task owned by itself, watch armed, woken', async () => {
+  const { hub, tasks, later, nudged, call, now } = await g24Setup(['ju']);
+  const res = await call(later.ticket('ju', 1), { title: '修登录页' });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.workspace.name, '工作区1');
+  const [task] = tasks.list(1);
+  assert.equal(task.owner, 'ju'); assert.equal(task.created_by, 'ju'); assert.equal(task.title, '修登录页');
+  assert.equal(tasks.task(task.id).next_check_at, now() + CHECK_AFTER_S);
+  assert.deepEqual(nudged, [['ju', res.body.workspace.id, 'system']]);
+  assert.match(workspaceHint(hub, later, 'ju', 1), /\/collab\/api\/rooms\/1\/workspaces/);
+  assert.doesNotMatch(later.instructions('ju', 1), /workspaces/, 'bridge-shared later prompt stays without the command');
+});
+
+test('G24: an @-dispatched chat task is handed over, not opened twice', async () => {
+  const { hub, tasks, later, nudged, call } = await g24Setup(['ju', 'long']);
+  hub.post(1, { authorKind: 'role', author: 'ju', name: 'ju', text: '@long 修登录页' });
+  tasks.fromMessage(hub.store.page(1).at(-1));
+  assert.equal(tasks.list(1).filter(t => ['assigned', 'accepted'].includes(t.status)).length, 1);
+  const res = await call(later.ticket('ju', 1), { title: '修登录页', owner: 'long' });
+  assert.equal(res.status, 200);
+  const ws = res.body.workspace.id;
+  const open = tasks.list(1).filter(t => ['assigned', 'accepted', 'asked', 'rework'].includes(t.status));
+  assert.equal(open.length, 1, 'one open task across chat and workspace');
+  assert.equal(open[0].room_id, ws); assert.equal(open[0].owner, 'long');
+  assert.deepEqual(nudged.map(n => n[0]), ['long']);
+  // The system handoff line is not parsed as a chat dispatch either.
+  tasks.fromMessage(hub.store.page(ws).at(-1));
+  assert.equal(tasks.list(ws).filter(t => t.room_id === ws).length, 1);
+});
+
+test('G24: a ticket of the former primary is refused after the primary changes', async () => {
+  const { tasks, later, call, setLead } = await g24Setup(['ju', 'long']);
+  const old = later.ticket('ju', 1);
+  assert.equal((await call(old, { title: 'a' })).status, 200);
+  setLead('long');
+  const res = await call(old, { title: 'b' });
+  assert.equal(res.status, 403);
+  assert.equal((await call(later.ticket('long', 1), { title: 'c' })).status, 200);
+  assert.equal((await call(later.ticket('long', 1), { title: 'd' }, 2)).status, 403, 'ticket for another room');
+  assert.equal(tasks.list(1).length, 2, 'only the two accepted calls opened tasks');
+});
+
+test('G24: no or bad ticket is refused; owner must be a routable member', async () => {
+  const { later, call } = await g24Setup(['ju']);
+  assert.equal((await call(later.ticket('ju', 1), { title: 'ok' })).status, 200);
+  assert.equal((await call(undefined, { title: 'x' })).status, 401);
+  assert.equal((await call('bad.ticket', { title: 'x' })).status, 401);
+  assert.equal((await call(later.ticket('ju', 1), { title: 'x', owner: 'owner' })).status, 404);
+});
+
+test('G24: handed to a workspace first, then @-ed in the chat channel: still one open task', async () => {
+  const { hub, tasks, later, call } = await g24Setup(['ju', 'long']);
+  const res = await call(later.ticket('ju', 1), { title: '修登录页', owner: 'long' });
+  assert.equal(res.status, 200);
+  hub.post(1, { authorKind: 'role', author: 'ju', name: 'ju', text: '@long 修登录页 已交到工作区1' });
+  tasks.fromMessage(hub.store.page(1).at(-1));
+  const open = tasks.list(1).filter(t => ['assigned', 'accepted', 'asked', 'rework'].includes(t.status));
+  assert.equal(open.length, 1, 'the @ after the handoff opens no chat-side task');
+  assert.equal(open[0].room_id, res.body.workspace.id);
+  assert.equal(tasks.list(1).filter(t => t.room_id === 1).length, 0, 'no task in the chat channel to remind about');
+});
+
+test('G24: the local workspace command carries a reason into the owner\'s turn in the workspace', async () => {
+  const { workspacesRoute } = await import('./plugin.mjs');
+  const hub = makeHub();
+  hub.setMember({ id: 'cc', name: 'CC', kind: 'dsh', online: true });
+  hub.leadState = { selected: () => 'cc' };
+  const tasks = new Tasks(hub, { start: false });
+  hub.tasks = tasks;
+  const later = new Later(hub, ':memory:', () => true, { start: false });
+  const prompts = [];
+  const dsh = cliMembers(hub, async text => { prompts.push(text); return '收到'; });
+  const gateway = new CloudWebGateway(hub, { token: 'secret', logger: quiet });
+  const server = createServer((req, res) => workspacesRoute(req, res, new URL(req.url, 'http://x'), { store: hub.store, hub, gateway, owner: () => false, later, tasks, dsh })
+    ?? (res.writeHead(404), res.end('{}')));
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  try {
+    later.origin = `http://127.0.0.1:${server.address().port}`;
+    assert.match(later.workspaceInstructions('cc', 1), /交接说明[\s\S]*用户原话[\s\S]*参照[\s\S]*分支[\s\S]*验收标准/);
+    const reason = '用户原话：登录页点了没反应。参照 auth/legacy.mjs，以 main 为底，验收：点登录跳到首页';
+    const out = await new Promise(resolve => {
+      const child = spawn(process.execPath, [new URL('./later.mjs', import.meta.url).pathname, 'workspace', later.origin, later.ticket('cc', 1), '修登录页', '', reason]);
+      let text = ''; child.stdout.on('data', d => { text += d; }); child.stderr.on('data', d => { text += d; });
+      child.on('close', status => resolve({ status, text }));
+    });
+    assert.equal(out.status, 0, out.text);
+    await settle();
+    assert.equal(prompts.length, 1, 'the owner is woken once in the workspace');
+    assert.ok(prompts[0].includes(reason), 'the owner\'s turn sees the reason');
+  } finally { server.close(); later.close(); }
 });
