@@ -28,7 +28,7 @@ if os.environ.get("GATE_LEAD_FILE"):
 else:
     LEAD_FILE = _PRODUCT_DATA / "lead.json"
 
-KEYS, NAME, ID, ALIASES = [], {}, {}, {}
+KEYS, NAME, ID, ALIASES, DSH = [], {}, {}, {}, set()  # DSH = kind=dsh 的键（DSH 原生成员）
 _alias, _WHO, PATTERNS = [], "", []
 
 
@@ -43,9 +43,11 @@ def configure(team):
     global _alias, _WHO, PATTERNS
     members = {"": team["lead"], **team["subs"]}
     KEYS[:] = list(members)
-    NAME.clear(); ID.clear(); ALIASES.clear()
+    NAME.clear(); ID.clear(); ALIASES.clear(); DSH.clear()
     for k, m in members.items():
         NAME[k] = m["name"]
+        if m.get("kind") == "dsh":
+            DSH.add(k)
         if m.get("id"):
             ID[k] = str(m["id"])
         ALIASES[k] = list(dict.fromkeys([m["name"], *m.get("aliases", [])]))
@@ -193,13 +195,24 @@ def set_lead(key):
         return True
 
 
+def member(bot):
+    """/context 的 bot → 团队文件里的键。DSH 成员带 bot=dsh:<成员 id>（dsh/collab/gate-context.mjs），
+    只在 kind=dsh 的条目里按 id 找（只装 DSH 时主角色是 lead 段、键为 ""）；桥 bot 带的是键，原样返回。
+    两边名字空间分开：DSH 成员 id 和桥的项目键同名（都叫 claude）也不会认错。"""
+    bot = str(bot or "")
+    if bot.startswith("dsh:"):
+        mid = bot[4:]
+        return next((k for k in KEYS if k in DSH and ID.get(k) == mid), bot)
+    return bot
+
+
 def identity(bot):
     """给 bot 这一轮附的主/次身份段（ctxsvc 拼进上下文）。没切换过 → None：人设文件现在写的就是橘为主。
     第一步只改 gate；bridge 的交接回报/升级/仲裁仍发给 team_lead_bot（橘），第二步改成读这里。"""
     s = state()
     if not s["at"]:
         return None
-    L, me = s["lead"], bot
+    L, me = s["lead"], member(bot)
     lead = f"{NAME[L]}（<@{ID[L]}>）" if L in ID else NAME[L]
     if L == "":
         text = f"主角色已换回{NAME['']}，按人设里原来的主/次分工。" + (f"如果用户这句是在切换主角色，用一句话确认：现在主角色是{NAME['']}。" if me == "" else "")
@@ -233,7 +246,7 @@ def playbook(bot):
     """bot 是当前主角色 → 手册段（ctxsvc 拼进上下文），否则 None。
     path 里带切换时间：cc-connect 按 path 每个会话只推一次，换主后新主的下一轮收到一次。"""
     s = state()
-    if bot != s["lead"] or PLAYBOOK is None or not PLAYBOOK.is_file():
+    if member(bot) != s["lead"] or PLAYBOOK is None or not PLAYBOOK.is_file():
         return None
     return {"path": f"【主角色工作手册：{PLAYBOOK}，{s['at'] or '默认主角色'}】",
             "desc": PLAYBOOK.read_text(encoding="utf-8").strip()}
