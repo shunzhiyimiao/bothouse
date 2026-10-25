@@ -551,3 +551,150 @@ func TestVoiceRelay_PostSendUnknownIdentityRemainsLocked(t *testing.T) {
 		t.Fatalf("%d %v", code, err)
 	}
 }
+
+// A first turn whose new session was never persisted must not keep that ID:
+// strict resume of an unpersisted session fails every later turn.
+func TestVoiceRelay_FirstTurnPersistFailureDropsUnpersistedSession(t *testing.T) {
+	binding := func(rm *RelayManager) voiceRelayConversation {
+		rm.voice.mu.Lock()
+		defer rm.voice.mu.Unlock()
+		if len(rm.voice.Conversations) != 1 {
+			t.Fatalf("conversations: %+v", rm.voice.Conversations)
+		}
+		for _, c := range rm.voice.Conversations {
+			return c
+		}
+		return voiceRelayConversation{}
+	}
+	turn := func(rm *RelayManager, a *voiceAgentFake, id string, closeFail bool) (voiceRelayResult, *inputTestSession) {
+		a.mu.Lock()
+		a.closeCheck = func(context.Context) error {
+			if closeFail {
+				return errors.New("synthetic persistence failure")
+			}
+			return nil
+		}
+		a.mu.Unlock()
+		if _, _, err := rm.submitVoice(voiceReq(id)); err != nil {
+			t.Fatal(err)
+		}
+		s := <-a.sessions
+		<-s.prompts
+		s.events <- Event{Type: EventResult, Content: "answer " + id, Done: true}
+		return voiceWait(t, rm, id), s
+	}
+
+	t.Run("first turn fails to persist", func(t *testing.T) {
+		dir := t.TempDir()
+		rm, _, a, _ := voiceFixture(t, dir)
+		r, _ := turn(rm, a, "first", true)
+		if r.Status != "completed" || r.Text != "answer first" {
+			t.Fatalf("answer not kept: %+v", r)
+		}
+		if c := binding(rm); c.ID != "" || c.Started {
+			t.Fatalf("unpersisted session still bound: %+v", c)
+		}
+		restored, _, _, _ := voiceFixture(t, dir)
+		if c := binding(restored); c.ID != "" || c.Started {
+			t.Fatalf("rollback not durable: %+v", c)
+		}
+		r, s := turn(rm, a, "second", false)
+		if r.Status != "completed" {
+			t.Fatalf("next turn failed: %+v", r)
+		}
+		a.mu.Lock()
+		starts := append([]string{}, a.starts...)
+		a.mu.Unlock()
+		if len(starts) != 2 || starts[1] != "" {
+			t.Fatalf("next turn did not open a new session: %q", starts)
+		}
+		if c := binding(rm); c.ID != s.id {
+			t.Fatalf("new session not bound: %+v want %s", c, s.id)
+		}
+	})
+
+	t.Run("later turn fails to persist", func(t *testing.T) {
+		rm, _, a, _ := voiceFixture(t, t.TempDir())
+		_, s := turn(rm, a, "first", false)
+		r, _ := turn(rm, a, "second", true)
+		if r.Status != "completed" {
+			t.Fatalf("%+v", r)
+		}
+		if c := binding(rm); c.ID != s.id || !c.Started {
+			t.Fatalf("binding changed: %+v want %s", c, s.id)
+		}
+	})
+
+	// Ends a turn without a result: EventError, or no event at all so the
+	// relay timeout cancels the turn (Close skips persistence and returns nil).
+	failTurn := func(rm *RelayManager, a *voiceAgentFake, id string, closeFail, backendError bool) {
+		a.mu.Lock()
+		a.closeCheck = func(context.Context) error {
+			if closeFail {
+				return errors.New("synthetic persistence failure")
+			}
+			return nil
+		}
+		a.mu.Unlock()
+		if _, _, err := rm.submitVoice(voiceReq(id)); err != nil {
+			t.Fatal(err)
+		}
+		s := <-a.sessions
+		<-s.prompts
+		if backendError {
+			s.events <- Event{Type: EventError, Done: true}
+		}
+		if r := voiceWait(t, rm, id); r.Status != "failed" || r.Text != "" {
+			t.Fatalf("%+v", r)
+		}
+	}
+
+	t.Run("first turn backend error and persist failure", func(t *testing.T) {
+		rm, _, a, _ := voiceFixture(t, t.TempDir())
+		failTurn(rm, a, "first", true, true)
+		if c := binding(rm); c.ID != "" || c.Started {
+			t.Fatalf("unpersisted session still bound: %+v", c)
+		}
+	})
+
+	t.Run("first turn cancelled", func(t *testing.T) {
+		rm, _, a, _ := voiceFixture(t, t.TempDir())
+		rm.SetTimeout(30 * time.Millisecond)
+		failTurn(rm, a, "first", false, false)
+		if c := binding(rm); c.ID != "" || c.Started {
+			t.Fatalf("unconfirmed session still bound: %+v", c)
+		}
+		rm.SetTimeout(time.Minute)
+		r, s := turn(rm, a, "second", false)
+		if r.Status != "completed" {
+			t.Fatalf("next turn failed: %+v", r)
+		}
+		a.mu.Lock()
+		starts := append([]string{}, a.starts...)
+		a.mu.Unlock()
+		if len(starts) != 2 || starts[1] != "" {
+			t.Fatalf("next turn did not open a new session: %q", starts)
+		}
+		if c := binding(rm); c.ID != s.id {
+			t.Fatalf("new session not bound: %+v want %s", c, s.id)
+		}
+	})
+
+	t.Run("later turn cancelled", func(t *testing.T) {
+		rm, _, a, _ := voiceFixture(t, t.TempDir())
+		_, s := turn(rm, a, "first", false)
+		rm.SetTimeout(30 * time.Millisecond)
+		failTurn(rm, a, "second", false, false)
+		if c := binding(rm); c.ID != s.id || !c.Started {
+			t.Fatalf("binding changed: %+v want %s", c, s.id)
+		}
+	})
+
+	t.Run("first turn persists", func(t *testing.T) {
+		rm, _, a, _ := voiceFixture(t, t.TempDir())
+		_, s := turn(rm, a, "first", false)
+		if c := binding(rm); c.ID != s.id || !c.Started {
+			t.Fatalf("binding lost: %+v want %s", c, s.id)
+		}
+	})
+}
