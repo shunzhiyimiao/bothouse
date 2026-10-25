@@ -9,7 +9,7 @@ import { DshMembers, finalText, describeReason, friendlyFailure, memberStatus } 
 import { resolveConfig, installApprovalAnswerer } from './plugin.mjs';
 import { LeadState } from './lead-state.mjs';
 import { Roster } from './roster.mjs';
-import { promptText, teamModeRules, TurnProgress } from './dsh-member.mjs';
+import { promptText, teamModeRules, TurnProgress, workspaceHint } from './dsh-member.mjs';
 import { Tasks, CHECK_AFTER_S } from './tasks.mjs';
 import { tasksRoute, ownMessageRoute } from './plugin.mjs';
 import { TeamExit } from './team-exit.mjs';
@@ -1079,7 +1079,7 @@ test('clis: detection lists installed CLIs in order; handler answers GET with [{
 });
 
 test('roster: wizard roles are imported once, existing names skipped', async () => {
-  const { mkdtempSync, writeFileSync, existsSync } = await import('node:fs');
+  const { mkdtempSync, writeFileSync, existsSync, readFileSync } = await import('node:fs');
   const { join } = await import('node:path');
   const { tmpdir } = await import('node:os');
   const dir = mkdtempSync(join(tmpdir(), 'collab-wiz-'));
@@ -1095,7 +1095,10 @@ test('roster: wizard roles are imported once, existing names skipped', async () 
   assert.equal(members.config.get(ju.id).persona, '大姐头');
   assert.equal(members.config.get(ju.id).avatar, 'orange');
   assert.equal(existsSync(file), false);
-  assert.equal(existsSync(join(dir, 'wizard-members.imported.json')), true);
+  // each role carries the member id it really has (a Chinese name gets an m-xxxxxx id), for its wiki directory
+  const done = JSON.parse(readFileSync(join(dir, 'wizard-members.imported.json'), 'utf8')).members;
+  assert.deepEqual(done.map(m => [m.name, m.id]), [['橘', ju.id], ['DeepSeek', 'ds'], ['鲸鱼娘', hub.memberView().find(m => m.name === '鲸鱼娘').id]]);
+  assert.match(ju.id, /^m-[a-z0-9]{6}$/);
   assert.deepEqual(await roster.importWizard(file), []);
 });
 
@@ -3927,6 +3930,46 @@ test('CLI member without allow_always: typed 允许所有 goes back to ACP as al
   assert.equal(state, 'allowed', 'card shows what ACP got, not 已允许所有');
 });
 
+test('CLI member: after 允许所有 the next command in the same session is allowed without a card', async () => {
+  const hub = makeHub();
+  const outcomes = [];
+  const request = (id, command) => ({
+    sessionId: 's1',
+    toolCall: { toolCallId: id, title: 'Bash', rawInput: { command } },
+    options: [
+      { optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' },
+      { optionId: 'allow-always', name: 'Always allow', kind: 'allow_always' },
+      { optionId: 'reject-once', name: 'Reject', kind: 'reject_once' },
+    ],
+  });
+  const dsh = fakeDsh();
+  let turn = 0;
+  const agent = {
+    async ask(_text, _room, _onText, _onTool, opts) {
+      turn += 1;
+      outcomes.push(await opts.onPermission(request(`t${turn}a`, `ls ${turn}`)));
+      outcomes.push(await opts.onPermission(request(`t${turn}b`, `git status ${turn}`)));
+      return '好';
+    },
+    close() {},
+  };
+  new DshMembers(hub, { ctx: dsh.ctx, createUserMessage: m => m, createCliMember: () => agent, workspacePath: '/w', logger: quiet },
+    [{ id: 'cc', name: 'CC', cli: 'claude' }]);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 跑一下' });
+  await settle();
+  const [card] = permCards(hub);
+  assert.ok(card, 'the first command asks');
+  assert.deepEqual(JSON.parse(card.card).actions.map(a => a.decision), ['allow', 'deny', 'allow_all']);
+  hub.approvals.decide(card.id, 'allow_all');
+  await settle();
+  assert.equal(permCards(hub).length, 1, 'the next command in the same turn posts no card');
+  assert.deepEqual(outcomes, [{ outcome: 'selected', optionId: 'allow-always' }, { outcome: 'selected', optionId: 'allow-once' }]);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 再跑一下' });
+  await settle();
+  assert.equal(permCards(hub).length, 1, 'a later turn of the member in this room posts no card either');
+  assert.deepEqual(outcomes.slice(2), [{ outcome: 'selected', optionId: 'allow-once' }, { outcome: 'selected', optionId: 'allow-once' }]);
+});
+
 test('attachments: undelivered reasons are shown in Chinese by DSH error code, unknown ones stay as-is', async () => {
   const { undeliveredReasonZh } = await import('./attachments.mjs');
   assert.equal(undeliveredReasonZh({ reason: 'whatever', code: 'IMAGE_TOO_MANY_PIXELS' }), '图片太大，超过像素上限');
@@ -3934,4 +3977,342 @@ test('attachments: undelivered reasons are shown in Chinese by DSH error code, u
   assert.equal(undeliveredReasonZh({ reason: 'Unsupported or malformed image data.', code: 'INVALID_IMAGE' }), '图片格式不支持或已损坏');
   assert.equal(undeliveredReasonZh({ reason: 'Image exceeds the configured per-side pixel limit.' }), '图片太长或太宽，超过单边像素上限');
   assert.equal(undeliveredReasonZh({ reason: 'something new' }), 'something new');
+});
+
+// #597 K11: DSH-native members get the gate's /context (wiki pages, task board) each turn.
+async function fakeGate(handler) {
+  const { createServer } = await import('node:http');
+  const calls = [];
+  const server = createServer((req, res) => {
+    let body = '';
+    req.on('data', c => { body += c; });
+    req.on('end', () => {
+      calls.push({ path: req.url, body: JSON.parse(body || '{}') });
+      const out = handler(calls.at(-1));
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(out));
+    });
+  });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  return { calls, port: server.address().port, close: () => new Promise(r => server.close(r)) };
+}
+const until = async (f) => { for (let i = 0; i < 400 && !f(); i++) await new Promise(r => setTimeout(r, 5)); };
+const BOARD = { path: '【任务板 abc123】', desc: '谁手上有哪件事、做在哪\n#7 修登录 · 龙娘' };
+
+test('DSH member: each turn carries the gate wiki and task board, a page only once per conversation', async () => {
+  const gate = await fakeGate(({ body }) => ({ wiki: [BOARD, { path: '~/wiki/a.md', desc: body.text.includes('部署') ? '部署步骤' : 'a' }] }));
+  process.env.GATE_PORT = String(gate.port);
+  try {
+    const hub = makeHub();
+    const dsh = fakeDsh();
+    dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+    hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 怎么部署' });
+    await until(() => dsh.made.length && dsh.sessions.get(dsh.made[0]).prompts.length === 1);
+    const agent = dsh.sessions.get(dsh.made[0]);
+    const first = agent.prompts[0].content[0].text;
+    assert.match(first, /（可能相关的 wiki 页，需要时去读）/);
+    assert.match(first, /- ~\/wiki\/a\.md — 部署步骤/);
+    assert.match(first, /- 【任务板 abc123】 — 谁手上有哪件事、做在哪\n#7 修登录 · 龙娘/);
+    assert.ok(first.indexOf('wiki 页') < first.indexOf('【我】@DeepSeek'), 'the block comes before the channel messages');
+    assert.deepEqual(gate.calls[0].body, { key: 'dsh:ds:1', text: '@DeepSeek 怎么部署', bot: 'dsh:ds' });
+    dsh.turn(agent, ['好']);
+    await until(() => hub.store.job(1).state === 'done');
+    hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 再说一遍' });
+    await until(() => agent.prompts.length === 2);
+    const second = agent.prompts[1].content[0].text;
+    assert.equal(gate.calls.length, 2, 'the gate is asked every turn');
+    assert.doesNotMatch(second, /wiki 页|任务板/, 'pages already given are not given again');
+  } finally {
+    delete process.env.GATE_PORT;
+    await gate.close();
+  }
+});
+
+test('CLI member: the gate block goes into the prompt; a changed board goes out again', async () => {
+  let tag = 'aaa111';
+  const gate = await fakeGate(() => ({ wiki: [{ ...BOARD, path: `【任务板 ${tag}】` }] }));
+  process.env.GATE_PORT = String(gate.port);
+  try {
+    const hub = makeHub();
+    const prompts = [];
+    cliMembers(hub, async (text) => { prompts.push(text); return '收到'; });
+    hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 任务板上有什么' });
+    await until(() => hub.store.job(1)?.state === 'done');
+    hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 还有吗' });
+    await until(() => hub.store.job(2)?.state === 'done');
+    tag = 'bbb222';
+    hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 现在呢' });
+    await until(() => hub.store.job(3)?.state === 'done');
+    assert.match(prompts[0], /【任务板 aaa111】 — .*\n#7 修登录 · 龙娘/);
+    assert.doesNotMatch(prompts[1], /任务板/);
+    assert.match(prompts[2], /【任务板 bbb222】/);
+  } finally {
+    delete process.env.GATE_PORT;
+    await gate.close();
+  }
+});
+
+test('DSH member: gate down or slow, the turn goes out as before', async () => {
+  const { createServer } = await import('node:net');
+  const dead = createServer(); await new Promise(r => dead.listen(0, '127.0.0.1', r));
+  const port = dead.address().port; await new Promise(r => dead.close(r));
+  process.env.GATE_PORT = String(port);
+  try {
+    const hub = makeHub();
+    const prompts = [];
+    cliMembers(hub, async (text) => { prompts.push(text); return '照常回'; });
+    hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 在吗' });
+    await until(() => hub.store.job(1)?.state === 'done');
+    assert.equal(hub.store.job(1).state, 'done');
+    assert.doesNotMatch(prompts[0], /wiki 页/);
+    assert.equal(hub.store.page(1, undefined, 1)[0].text, '照常回');
+  } finally {
+    delete process.env.GATE_PORT;
+  }
+  const { GateContext } = await import('./gate-context.mjs');
+  const slow = new GateContext({ port: '1', timeoutMs: 20, fetch: (_u, { signal }) => new Promise((_, rej) => signal.addEventListener('abort', () => rej(signal.reason))) });
+  const t0 = Date.now();
+  assert.equal((await slow.turn({ member: 'ds', room: 1, text: 'x' })).block, '');
+  assert.ok(Date.now() - t0 < 1000, 'a hung gate is given up on after the timeout');
+});
+
+test('DSH member: its own MEMORY.md goes into the first turn of a conversation only', async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const data = mkdtempSync(join(tmpdir(), 'collab-mem-'));
+  mkdirSync(join(data, 'roles', 'ds', 'wiki'), { recursive: true });
+  writeFileSync(join(data, 'roles', 'ds', 'wiki', 'MEMORY.md'), '- [projects](projects/README.md) — 部署记录\n');
+  process.env.BOTHOUSE_DATA_DIR = data;
+  try {
+    const hub = makeHub();
+    const dsh = fakeDsh();
+    dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+    hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 在吗' });
+    await until(() => dsh.made.length && dsh.sessions.get(dsh.made[0]).prompts.length === 1);
+    const agent = dsh.sessions.get(dsh.made[0]);
+    const first = agent.prompts[0].content[0].text;
+    assert.ok(first.includes(`（你的记忆 wiki 目录页 ${join(data, 'roles', 'ds', 'wiki', 'MEMORY.md')}，新会话系统自动附上，不用回应）\n- [projects](projects/README.md) — 部署记录`), first);
+    assert.ok(first.indexOf('你的记忆') < first.indexOf('【我】@DeepSeek'), 'the block comes before the channel messages');
+    dsh.turn(agent, ['在']);
+    await until(() => hub.store.job(1).state === 'done');
+    hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 再说一遍' });
+    await until(() => agent.prompts.length === 2);
+    assert.doesNotMatch(agent.prompts[1].content[0].text, /你的记忆/, 'the second turn does not carry it again');
+  } finally {
+    delete process.env.BOTHOUSE_DATA_DIR;
+  }
+});
+
+test('CLI member: its own MEMORY.md on the first turn only; no wiki, no block', async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const { MemoryIndex } = await import('./memory-index.mjs');
+  const data = mkdtempSync(join(tmpdir(), 'collab-mem-'));
+  mkdirSync(join(data, 'roles', 'm-ab12cd', 'wiki'), { recursive: true });
+  writeFileSync(join(data, 'roles', 'm-ab12cd', 'wiki', 'MEMORY.md'), '- [a](a/README.md) — 甲\n');
+  const idx = new MemoryIndex({ dataDir: data, home: data });
+  const one = idx.turn({ member: 'm-ab12cd', room: 1 });
+  assert.equal(one.block, '（你的记忆 wiki 目录页 ~/roles/m-ab12cd/wiki/MEMORY.md，新会话系统自动附上，不用回应）\n- [a](a/README.md) — 甲');
+  assert.notEqual(idx.turn({ member: 'm-ab12cd', room: 1 }).block, '', 'not given until the prompt went out');
+  one.commit();
+  assert.equal(idx.turn({ member: 'm-ab12cd', room: 1 }).block, '');
+  assert.notEqual(idx.turn({ member: 'm-ab12cd', room: 2 }).block, '', 'another room is another conversation');
+  assert.notEqual(idx.turn({ member: 'm-ab12cd', room: 1, session: 's2' }).block, '', 'a new session is a fresh context');
+  idx.resetRoom(1);
+  assert.notEqual(idx.turn({ member: 'm-ab12cd', room: 1 }).block, '', 'a released workspace starts over');
+  assert.equal(idx.turn({ member: 'nobody', room: 1 }).block, '');
+  assert.equal(new MemoryIndex({ dataDir: '' }).turn({ member: 'm-ab12cd', room: 1 }).block, '');
+});
+
+test('CLI member: after /new the fresh context gets its MEMORY.md and the task board again', async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const data = mkdtempSync(join(tmpdir(), 'collab-mem-'));
+  mkdirSync(join(data, 'roles', 'cc', 'wiki'), { recursive: true });
+  writeFileSync(join(data, 'roles', 'cc', 'wiki', 'MEMORY.md'), '- [a](a/README.md) — 甲\n');
+  const gate = await fakeGate(() => ({ wiki: [{ ...BOARD, path: '【任务板 aaa111】' }] }));
+  process.env.BOTHOUSE_DATA_DIR = data;
+  process.env.GATE_PORT = String(gate.port);
+  try {
+    const hub = makeHub();
+    const prompts = [];
+    cliMembers(hub, async (text, _room, _onText, _onTool, opts) => {
+      prompts.push(text);
+      opts.onSession({ sessionId: `acp-${prompts.length}`, lost: false });
+      return '好';
+    });
+    hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 第一轮' });
+    await until(() => prompts.length === 1 && hub.store.job(1)?.state === 'done');
+    hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 第二轮' });
+    await until(() => prompts.length === 2);
+    await settle();
+    hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC /new' });
+    await settle();
+    hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 新一轮' });
+    await until(() => prompts.length === 3);
+    assert.match(prompts[0], /你的记忆/);
+    assert.match(prompts[0], /【任务板 aaa111】/);
+    assert.doesNotMatch(prompts[1], /你的记忆|任务板/, 'same context: not again');
+    assert.match(prompts[2], /你的记忆/, '/new: MEMORY.md again');
+    assert.match(prompts[2], /【任务板 aaa111】/, '/new: the unchanged board again');
+  } finally {
+    delete process.env.BOTHOUSE_DATA_DIR;
+    delete process.env.GATE_PORT;
+    await gate.close();
+  }
+});
+
+test('CLI member: a session that could not be resumed gets its MEMORY.md and the task board again next turn', async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const data = mkdtempSync(join(tmpdir(), 'collab-mem-'));
+  mkdirSync(join(data, 'roles', 'cc', 'wiki'), { recursive: true });
+  writeFileSync(join(data, 'roles', 'cc', 'wiki', 'MEMORY.md'), '- [a](a/README.md) — 甲\n');
+  const gate = await fakeGate(() => ({ wiki: [{ ...BOARD, path: '【任务板 aaa111】' }] }));
+  process.env.BOTHOUSE_DATA_DIR = data;
+  process.env.GATE_PORT = String(gate.port);
+  try {
+    const hub = makeHub();
+    const prompts = [];
+    cliMembers(hub, async (text, _room, _onText, _onTool, opts) => {
+      prompts.push(text);
+      // the second turn's resume fails: the CLI is in a new session
+      opts.onSession({ sessionId: `acp-${prompts.length}`, lost: prompts.length === 2 });
+      return '好';
+    });
+    for (const [i, t] of ['第一轮', '第二轮', '第三轮', '第四轮'].entries()) {
+      hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: `@CC ${t}` });
+      await until(() => prompts.length === i + 1);
+      await settle();
+    }
+    assert.match(prompts[0], /你的记忆/);
+    assert.doesNotMatch(prompts[1], /你的记忆|任务板/, 'same context so far: not again');
+    assert.match(prompts[2], /你的记忆/, 'session lost: MEMORY.md again');
+    assert.match(prompts[2], /【任务板 aaa111】/, 'session lost: the unchanged board again');
+    assert.doesNotMatch(prompts[3], /你的记忆|任务板/, 'given to the new session: not again');
+  } finally {
+    delete process.env.BOTHOUSE_DATA_DIR;
+    delete process.env.GATE_PORT;
+    await gate.close();
+  }
+});
+
+// #597 G24: a DSH primary opens a workspace with its later ticket; the route opens the task and wakes the owner.
+async function g24Setup(members = ['ju']) {
+  const { workspacesRoute } = await import('./plugin.mjs');
+  const hub = makeHub(); hub.store.ensureRoom(2, 'other');
+  for (const id of members) hub.setMember({ id, name: id, kind: 'dsh', online: true });
+  let lead = members[0];
+  hub.leadState = { selected: () => lead };
+  let clock = 5000;
+  const tasks = new Tasks(hub, { now: () => clock, start: false });
+  hub.tasks = tasks;
+  const later = new Later(hub, ':memory:', () => true, { start: false });
+  const nudged = [];
+  const dsh = { nudge: (id, msg) => { nudged.push([id, msg.room_id, msg.author_kind]); return true; } };
+  const gateway = new CloudWebGateway(hub, { token: 'secret', logger: quiet });
+  const call = async (ticket, body, room = 1) => {
+    const req = Readable.from([Buffer.from(JSON.stringify(body))]); req.method = 'POST';
+    req.headers = ticket === undefined ? {} : { 'x-later-ticket': ticket };
+    const res = { writeHead(status) { this.status = status; }, end(data) { this.body = JSON.parse(data); } };
+    await workspacesRoute(req, res, new URL(`http://x/collab/api/rooms/${room}/workspaces`), { store: hub.store, hub, gateway, owner: () => false, later, tasks, dsh });
+    return res;
+  };
+  return { hub, tasks, later, nudged, call, setLead: id => { lead = id; }, now: () => clock };
+}
+
+test('G24: single primary opens a workspace by ticket; task owned by itself, watch armed, woken', async () => {
+  const { hub, tasks, later, nudged, call, now } = await g24Setup(['ju']);
+  const res = await call(later.ticket('ju', 1), { title: '修登录页' });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.workspace.name, '工作区1');
+  const [task] = tasks.list(1);
+  assert.equal(task.owner, 'ju'); assert.equal(task.created_by, 'ju'); assert.equal(task.title, '修登录页');
+  assert.equal(tasks.task(task.id).next_check_at, now() + CHECK_AFTER_S);
+  assert.deepEqual(nudged, [['ju', res.body.workspace.id, 'system']]);
+  assert.match(workspaceHint(hub, later, 'ju', 1), /\/collab\/api\/rooms\/1\/workspaces/);
+  assert.doesNotMatch(later.instructions('ju', 1), /workspaces/, 'bridge-shared later prompt stays without the command');
+});
+
+test('G24: an @-dispatched chat task is handed over, not opened twice', async () => {
+  const { hub, tasks, later, nudged, call } = await g24Setup(['ju', 'long']);
+  hub.post(1, { authorKind: 'role', author: 'ju', name: 'ju', text: '@long 修登录页' });
+  tasks.fromMessage(hub.store.page(1).at(-1));
+  assert.equal(tasks.list(1).filter(t => ['assigned', 'accepted'].includes(t.status)).length, 1);
+  const res = await call(later.ticket('ju', 1), { title: '修登录页', owner: 'long' });
+  assert.equal(res.status, 200);
+  const ws = res.body.workspace.id;
+  const open = tasks.list(1).filter(t => ['assigned', 'accepted', 'asked', 'rework'].includes(t.status));
+  assert.equal(open.length, 1, 'one open task across chat and workspace');
+  assert.equal(open[0].room_id, ws); assert.equal(open[0].owner, 'long');
+  assert.deepEqual(nudged.map(n => n[0]), ['long']);
+  // The system handoff line is not parsed as a chat dispatch either.
+  tasks.fromMessage(hub.store.page(ws).at(-1));
+  assert.equal(tasks.list(ws).filter(t => t.room_id === ws).length, 1);
+});
+
+test('G24: a ticket of the former primary is refused after the primary changes', async () => {
+  const { tasks, later, call, setLead } = await g24Setup(['ju', 'long']);
+  const old = later.ticket('ju', 1);
+  assert.equal((await call(old, { title: 'a' })).status, 200);
+  setLead('long');
+  const res = await call(old, { title: 'b' });
+  assert.equal(res.status, 403);
+  assert.equal((await call(later.ticket('long', 1), { title: 'c' })).status, 200);
+  assert.equal((await call(later.ticket('long', 1), { title: 'd' }, 2)).status, 403, 'ticket for another room');
+  assert.equal(tasks.list(1).length, 2, 'only the two accepted calls opened tasks');
+});
+
+test('G24: no or bad ticket is refused; owner must be a routable member', async () => {
+  const { later, call } = await g24Setup(['ju']);
+  assert.equal((await call(later.ticket('ju', 1), { title: 'ok' })).status, 200);
+  assert.equal((await call(undefined, { title: 'x' })).status, 401);
+  assert.equal((await call('bad.ticket', { title: 'x' })).status, 401);
+  assert.equal((await call(later.ticket('ju', 1), { title: 'x', owner: 'owner' })).status, 404);
+});
+
+test('G24: handed to a workspace first, then @-ed in the chat channel: still one open task', async () => {
+  const { hub, tasks, later, call } = await g24Setup(['ju', 'long']);
+  const res = await call(later.ticket('ju', 1), { title: '修登录页', owner: 'long' });
+  assert.equal(res.status, 200);
+  hub.post(1, { authorKind: 'role', author: 'ju', name: 'ju', text: '@long 修登录页 已交到工作区1' });
+  tasks.fromMessage(hub.store.page(1).at(-1));
+  const open = tasks.list(1).filter(t => ['assigned', 'accepted', 'asked', 'rework'].includes(t.status));
+  assert.equal(open.length, 1, 'the @ after the handoff opens no chat-side task');
+  assert.equal(open[0].room_id, res.body.workspace.id);
+  assert.equal(tasks.list(1).filter(t => t.room_id === 1).length, 0, 'no task in the chat channel to remind about');
+});
+
+test('G24: the local workspace command carries a reason into the owner\'s turn in the workspace', async () => {
+  const { workspacesRoute } = await import('./plugin.mjs');
+  const hub = makeHub();
+  hub.setMember({ id: 'cc', name: 'CC', kind: 'dsh', online: true });
+  hub.leadState = { selected: () => 'cc' };
+  const tasks = new Tasks(hub, { start: false });
+  hub.tasks = tasks;
+  const later = new Later(hub, ':memory:', () => true, { start: false });
+  const prompts = [];
+  const dsh = cliMembers(hub, async text => { prompts.push(text); return '收到'; });
+  const gateway = new CloudWebGateway(hub, { token: 'secret', logger: quiet });
+  const server = createServer((req, res) => workspacesRoute(req, res, new URL(req.url, 'http://x'), { store: hub.store, hub, gateway, owner: () => false, later, tasks, dsh })
+    ?? (res.writeHead(404), res.end('{}')));
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  try {
+    later.origin = `http://127.0.0.1:${server.address().port}`;
+    assert.match(later.workspaceInstructions('cc', 1), /交接说明[\s\S]*用户原话[\s\S]*参照[\s\S]*分支[\s\S]*验收标准/);
+    const reason = '用户原话：登录页点了没反应。参照 auth/legacy.mjs，以 main 为底，验收：点登录跳到首页';
+    const out = await new Promise(resolve => {
+      const child = spawn(process.execPath, [new URL('./later.mjs', import.meta.url).pathname, 'workspace', later.origin, later.ticket('cc', 1), '修登录页', '', reason]);
+      let text = ''; child.stdout.on('data', d => { text += d; }); child.stderr.on('data', d => { text += d; });
+      child.on('close', status => resolve({ status, text }));
+    });
+    assert.equal(out.status, 0, out.text);
+    await settle();
+    assert.equal(prompts.length, 1, 'the owner is woken once in the workspace');
+    assert.ok(prompts[0].includes(reason), 'the owner\'s turn sees the reason');
+  } finally { server.close(); later.close(); }
 });

@@ -103,7 +103,6 @@ export class Tasks {
       // Clear before waking (a success is never re-sent); restore only if nobody took it.
       takeRemind: this.db.prepare('UPDATE tasks SET remind_msg_id = NULL WHERE id = ? AND remind_msg_id = ? RETURNING *'),
       putRemind: this.db.prepare('UPDATE tasks SET remind_msg_id = ? WHERE id = ? AND remind_msg_id IS NULL'),
-      next: this.db.prepare(`SELECT MIN(next_check_at) AS at FROM tasks WHERE next_check_at IS NOT NULL AND ${LIVE}`),
       active: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND ${LIVE}`),
       paused: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND status IN (${PLACEHOLDERS}) AND paused_at IS NOT NULL`),
       ownerSaid: this.db.prepare("SELECT text FROM messages WHERE room_id = ? AND author_kind = 'role' AND author = ? AND card IS NULL AND deleted = 0 AND created_at > ?"),
@@ -121,6 +120,9 @@ export class Tasks {
         AND status IN (${PLACEHOLDERS}) ORDER BY id DESC LIMIT 1`),
       returnedChat: this.db.prepare("SELECT * FROM tasks WHERE room_id = ? AND created_by = ? AND source IS NOT NULL AND status = 'returned' ORDER BY id"),
       children: this.tree ? this.db.prepare("SELECT id FROM rooms WHERE kind = 'workspace' AND parent_id = ? ORDER BY id") : undefined,
+      // #597 G24: a job the lead already handed to one of this chat channel's workspaces.
+      openHanded: this.tree ? this.db.prepare(`SELECT * FROM tasks WHERE owner = ? AND created_by = ? AND source = 'workspace'
+        AND status IN (${PLACEHOLDERS}) AND room_id IN (SELECT id FROM rooms WHERE kind = 'workspace' AND parent_id = ?) ORDER BY id DESC LIMIT 1`) : undefined,
     };
     hub.onMessage(message => this.fromMessage(message));
     // A member coming online (cloud-web register, DSH member published) gets its pending reminders.
@@ -424,9 +426,13 @@ export class Tasks {
     return this.handBack(open.id, { actor: msg.author, messageId: msg.id });
   }
 
-  /** Open a chat-side task unless the owner already has one open from this lead in this room. */
+  /**
+   * Open a chat-side task unless the owner already has one open from this lead in this room, or one
+   * the lead handed to a workspace under it (the lead's later @ just tells the owner about it).
+   */
   openFromChat({ roomId, owner, lead, title, messageId, source }) {
     if (!this.hub.members.has(owner) || this.q.openChat.get(roomId, owner, lead, ...WORKING) !== undefined) return undefined;
+    if (this.q.openHanded?.get(owner, lead, ...WORKING, roomId) !== undefined) return undefined;
     // force: the channel already dispatched it; the board records it even if the owner is busy elsewhere.
     const task = this.assign({ roomId, title, owner, actor: lead, messageId, force: true });
     this.q.setSource.run(source, task.id);
@@ -468,13 +474,14 @@ export class Tasks {
 
   /**
    * At its check time a workspace task is renewed or parked (watch); a task in any other room
-   * gets one reminder @-ing the owner, which also wakes it.
+   * gets one reminder @-ing the owner, which also wakes it. A workspace held by a bridge claim is
+   * the bridge's to watch (core/team_watch.go): its tasks get neither.
    */
   tick() {
     if (this.closed || !this.started) return;
     const now = this.now();
     for (const task of this.q.allBusy.all(...WORKING)) {
-      if (this.store.room(task.room_id)?.kind === 'workspace' && watchDue(task) <= now) this.watch(task, now);
+      if (this.watched(task) && watchDue(task) <= now) this.watch(task, now);
     }
     for (const task of this.q.due.all(now, ...WORKING)) {
       if (this.store.room(task.room_id)?.kind === 'workspace') continue;
@@ -489,6 +496,11 @@ export class Tasks {
       this.changed(task.id);
     }
     this.arm();
+  }
+
+  /** A workspace task this gateway watches: not in a workspace the bridge claimed. */
+  watched(task) {
+    return this.store.room(task.room_id)?.kind === 'workspace' && !this.store.bridgeClaimed(task.room_id);
   }
 
   /**
@@ -551,11 +563,11 @@ export class Tasks {
     if (this.timer !== undefined) this.clearTimer(this.timer);
     this.timer = undefined;
     if (this.closed) return;
-    // Workspace tasks without a check time (spent by an older reminder) are still watched.
-    const unchecked = this.q.allBusy.all(...WORKING)
-      .filter(t => t.next_check_at == null && this.store.room(t.room_id)?.kind === 'workspace')
-      .map(watchDue);
-    const at = [this.q.next.get(...WORKING).at, ...unchecked].filter(t => t != null).sort((a, b) => a - b)[0];
+    // Workspace tasks are due at watchDue (also those whose check time an older reminder spent),
+    // except in bridge-claimed workspaces; other tasks at their check time.
+    const at = this.q.allBusy.all(...WORKING)
+      .map(t => this.store.room(t.room_id)?.kind !== 'workspace' ? t.next_check_at : this.watched(t) ? watchDue(t) : null)
+      .filter(t => t != null).sort((a, b) => a - b)[0];
     if (at == null) return;
     const ms = Math.min(MAX_TIMER_MS, Math.max(0, (at - this.now()) * 1000));
     this.timer = this.setTimer(() => { this.timer = undefined; this.tick(); }, ms);
