@@ -127,6 +127,7 @@ type stubBoardAPI struct {
 	pins     []string
 	deletes  []string
 	delErr   error
+	sendErr  error
 	unpinned bool
 	pinErr   error
 }
@@ -138,6 +139,9 @@ func (s *stubBoardAPI) ChannelMessageDelete(_, messageID string, _ ...discordgo.
 
 func (s *stubBoardAPI) ChannelMessageSendComplex(channelID string, data *discordgo.MessageSend, _ ...discordgo.RequestOption) (*discordgo.Message, error) {
 	s.sends = append(s.sends, data)
+	if s.sendErr != nil {
+		return nil, s.sendErr
+	}
 	return &discordgo.Message{ID: "new", ChannelID: channelID}, nil
 }
 
@@ -197,8 +201,24 @@ func TestRemoveBoard(t *testing.T) {
 		t.Fatalf("already-deleted board should count as removed: %v", err)
 	}
 	api.delErr = errors.New("network")
-	if err := removeBoard(api, "c1", "m2"); err == nil {
-		t.Fatal("real failure must be reported")
+	if err := removeBoard(api, "c1", "m2"); err == nil || errors.Is(err, core.ErrBoardUnremovable) {
+		t.Fatalf("temporary failure must stay retryable: %v", err)
+	}
+	api.delErr = &discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusInternalServerError},
+		Message: &discordgo.APIErrorMessage{Code: 0}}
+	if err := removeBoard(api, "c1", "m2"); err == nil || errors.Is(err, core.ErrBoardUnremovable) {
+		t.Fatalf("server error must stay retryable: %v", err)
+	}
+	for _, rest := range []*discordgo.RESTError{
+		{Response: &http.Response{StatusCode: http.StatusBadRequest}, Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodePerformedOperationOnArchivedThread}},
+		{Response: &http.Response{StatusCode: http.StatusNotFound}, Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeUnknownChannel}},
+		{Response: &http.Response{StatusCode: http.StatusForbidden}, Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeMissingAccess}},
+		{Response: &http.Response{StatusCode: http.StatusForbidden}, Message: &discordgo.APIErrorMessage{Code: 0}},
+	} {
+		api.delErr = rest
+		if err := removeBoard(api, "c1", "m3"); !errors.Is(err, core.ErrBoardUnremovable) {
+			t.Fatalf("permanent failure %+v must be unremovable, got %v", rest.Message, err)
+		}
 	}
 }
 
@@ -244,5 +264,89 @@ func TestPostToChatPingsOnlyTarget(t *testing.T) {
 	}
 	if err := postToChat(context.Background(), api, "c1", "x", "@everyone"); err == nil || len(api.sent) != 1 {
 		t.Fatal("invalid mention must not post")
+	}
+}
+
+// A 403/404 without a Discord JSON error body (e.g. an HTML page from a CDN)
+// is not proof the board is gone for good, so it stays retryable.
+func TestBoardBare403IsTemporary(t *testing.T) {
+	for _, status := range []int{http.StatusForbidden, http.StatusNotFound} {
+		bare := &discordgo.RESTError{Response: &http.Response{StatusCode: status}, ResponseBody: []byte("<html>")}
+		api := &stubBoardAPI{delErr: bare, editErr: bare}
+		if err := removeBoard(api, "c1", "m1"); err == nil || errors.Is(err, core.ErrBoardUnremovable) {
+			t.Fatalf("delete %d without error body = %v, want temporary", status, err)
+		}
+		if _, err := upsertBoard(api, "c1", "m1", "**谁在干啥**"); err == nil || errors.Is(err, core.ErrBoardUnremovable) {
+			t.Fatalf("edit %d without error body = %v, want temporary", status, err)
+		}
+		if len(api.sends) != 0 {
+			t.Fatalf("edit %d failure posted a new board", status)
+		}
+	}
+}
+
+// An edit in an archived thread (or a deleted / inaccessible channel) can never
+// succeed; it is reported as unremovable and no new board is posted, since
+// posting would bump the archived thread.
+func TestUpsertBoardEditUnrecoverable(t *testing.T) {
+	for _, rest := range []*discordgo.RESTError{
+		{Response: &http.Response{StatusCode: http.StatusBadRequest}, Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodePerformedOperationOnArchivedThread}},
+		{Response: &http.Response{StatusCode: http.StatusNotFound}, Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeUnknownChannel}},
+		{Response: &http.Response{StatusCode: http.StatusForbidden}, Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeMissingAccess}},
+	} {
+		api := &stubBoardAPI{editErr: rest}
+		id, err := upsertBoard(api, "c1", "old", "**谁在干啥**")
+		if !errors.Is(err, core.ErrBoardUnremovable) || id != "old" {
+			t.Fatalf("edit %+v = (%q, %v), want unremovable", rest.Message, id, err)
+		}
+		if len(api.sends) != 0 || len(api.pins) != 0 {
+			t.Fatalf("edit %+v: sends=%d pins=%v, want nothing posted", rest.Message, len(api.sends), api.pins)
+		}
+	}
+}
+
+// Posting a board where Discord says it never can (archived thread, lost
+// access, deleted channel) is reported as unremovable so the caller gives up;
+// a server error stays retryable.
+func TestUpsertBoardSendUnrecoverable(t *testing.T) {
+	for _, rest := range []*discordgo.RESTError{
+		{Response: &http.Response{StatusCode: http.StatusNotFound}, Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeUnknownChannel}},
+		{Response: &http.Response{StatusCode: http.StatusForbidden}, Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeMissingAccess}},
+		{Response: &http.Response{StatusCode: http.StatusBadRequest}, Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodePerformedOperationOnArchivedThread}},
+	} {
+		api := &stubBoardAPI{sendErr: rest}
+		id, err := upsertBoard(api, "c1", "", "**谁在干啥**")
+		if !errors.Is(err, core.ErrBoardUnremovable) || id != "" {
+			t.Fatalf("send %+v = (%q, %v), want unremovable", rest.Message, id, err)
+		}
+		if len(api.sends) != 1 || len(api.pins) != 0 {
+			t.Fatalf("send %+v: sends=%d pins=%v, want one try and no pin", rest.Message, len(api.sends), api.pins)
+		}
+	}
+	api := &stubBoardAPI{sendErr: &discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusInternalServerError},
+		Message: &discordgo.APIErrorMessage{Code: 0}}}
+	if _, err := upsertBoard(api, "c1", "", "**谁在干啥**"); err == nil || errors.Is(err, core.ErrBoardUnremovable) {
+		t.Fatalf("send server error = %v, want temporary", err)
+	}
+}
+
+// A 404 that carries a Discord JSON error body but no specific code (code 0)
+// still means the channel or message is gone for good.
+func TestBoard404JSONBodyCode0IsUnrecoverable(t *testing.T) {
+	rest := &discordgo.RESTError{Response: &http.Response{StatusCode: http.StatusNotFound},
+		ResponseBody: []byte(`{"message": "404: Not Found", "code": 0}`),
+		Message:      &discordgo.APIErrorMessage{Code: 0, Message: "404: Not Found"}}
+	if !discordUnrecoverable(rest) {
+		t.Fatal("404 with JSON body, code 0 must be unrecoverable")
+	}
+	api := &stubBoardAPI{delErr: rest, editErr: rest, sendErr: rest}
+	if err := removeBoard(api, "c1", "m1"); !errors.Is(err, core.ErrBoardUnremovable) {
+		t.Fatalf("delete = %v, want unremovable", err)
+	}
+	if _, err := upsertBoard(api, "c1", "m1", "**谁在干啥**"); !errors.Is(err, core.ErrBoardUnremovable) {
+		t.Fatalf("edit = %v, want unremovable", err)
+	}
+	if _, err := upsertBoard(api, "c1", "", "**谁在干啥**"); !errors.Is(err, core.ErrBoardUnremovable) {
+		t.Fatalf("send = %v, want unremovable", err)
 	}
 }

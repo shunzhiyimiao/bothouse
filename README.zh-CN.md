@@ -79,6 +79,8 @@ irm https://raw.githubusercontent.com/zuiho-kai/bothouse/main/install.ps1 | iex;
 
 装好后的命令叫 `bothouse`。不用装 Go 或 Node。
 
+`bothouse daemon install` 装好后台服务并马上启动。开机自启默认关，可在面板设置里打开（设置 → 开机自动启动）；切换不会停掉正在跑的服务。
+
 **开始前准备：** 一个 Discord 服务器（或飞书企业），加上至少一个本机已登录的 AI 命令行工具（Claude Code / Codex / Gemini CLI 任一）。机器人怎么建，向导会一步步带你。
 
 1. **装**：运行上面那一行命令。
@@ -247,6 +249,8 @@ Tailscale 要在 bothouse 启动前就起来，机器重启后也是这个顺序
 记忆层用的是公开的 [llm-wiki](https://github.com/zuiho-kai/llm-wiki)。它只记你和一个助手的对话；bothouse 让几个角色共用一份，Claude、Codex、DSH 的对话都会记进去，你每说一句就递上相关页，每晚还有复盘。
 
 ### 自带护栏和小工具
+
+语音总台启用后，日常语音只续接本频道对话；问到伙伴进度时再按需查询。也可用 `bothouse voice-desk --project <项目名>` 查询当前公开状态，跨频道转达仍需确认。
 
 - **护栏**：危险命令先拦。AI 说「修好了」却拿不出证据，会被打回去补；说「等会儿再看」却没定闹钟，也会被拦下。Claude Code 和 DSH 用同一份。
 - **小工具**：看队友现在在干什么、把一段视频看成文字和截图、免费搜网页。

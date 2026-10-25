@@ -221,6 +221,7 @@ var topLevelCommandHandlers = map[string]func([]string){
 	"cron":         runCron,
 	"model":        runModel,
 	"workspace":    runWorkspace,
+	"voice-desk":   runVoiceDesk,
 	"timer":        runTimer,
 	"at":           runTimer,
 	"relay":        runRelay,
@@ -339,6 +340,7 @@ func runMain() {
 		os.Exit(1)
 	}
 	slog.Info("acquired instance lock", "path", instanceLock.Path())
+	slog.Info("desktop tray", "enabled", trayMode)
 
 	// After an upgrade, bring ~/.bothouse/dsh plugin code up to this version (user files kept).
 	// In the background: when its dependencies changed it runs pnpm install, which must not hold
@@ -399,6 +401,11 @@ func runMain() {
 		} else {
 			cfg = newCfg
 		}
+	}
+	// Roles the migration could not give a mode (dotted/inline options, agent
+	// types with no default mode): say once in the log they may still ask.
+	if _, err := config.HintRolesWithoutKnownMode(cfg.DataDir, cfg); err != nil {
+		slog.Warn("upgrade: permission-mode hint not recorded, it will repeat next start", "error", err)
 	}
 
 	// DSH roles set up before the image size limit was written get it in their overlay now (an upgrade restarts here).
@@ -651,6 +658,7 @@ func runMain() {
 		mgmtSrv.SetSaveProviderRefs(config.SaveProviderRefs)
 		mgmtSrv.SetConfigFilePath(configPath)
 		mgmtSrv.SetGetGlobalSettings(config.GetGlobalSettings)
+		wireAutostart(mgmtSrv)
 		mgmtSrv.SetSaveGlobalSettings(func(updates map[string]any) error {
 			u := config.GlobalSettingsUpdate{}
 			if v, ok := updates["language"].(string); ok {
@@ -787,10 +795,14 @@ func runMain() {
 
 	var restartReq *core.RestartRequest
 	select {
-	case <-sigCh:
+	case sig := <-sigCh:
+		slog.Info("shutdown requested", "source", "system_signal", "signal", sig.String())
 	case <-desktopShutdown:
+		slog.Info("shutdown requested", "source", "tray")
+		defer stopDesktopService()
 	case req := <-core.RestartCh:
 		restartReq = &req
+		slog.Info("shutdown requested", "source", "restart_command", "session", req.SessionKey)
 		slog.Info("restart requested via /restart command", "session", req.SessionKey, "platform", req.Platform)
 	}
 
@@ -1520,6 +1532,7 @@ func runTopLevelCommand(args []string) bool {
 var rootConfigPath string
 
 type rootCLIOptions struct {
+	headless       bool
 	configPath     string
 	force          bool
 	observe        bool
@@ -1535,6 +1548,7 @@ func parseRootCLIOptions(args []string) (rootCLIOptions, error) {
 	fs.SetOutput(os.Stderr)
 	fs.Usage = printUsage
 
+	headless := fs.Bool("headless", false, "run without a desktop tray icon")
 	configPath := fs.String("config", "", "path to config file (default: ./config.toml or ~/.bothouse/config.toml)")
 	force := fs.Bool("force", false, "kill any existing instance with the same config before starting")
 	observe := fs.Bool("observe", false, "observe native terminal Claude Code sessions and forward to Slack")
@@ -1548,6 +1562,7 @@ func parseRootCLIOptions(args []string) (rootCLIOptions, error) {
 	}
 
 	return rootCLIOptions{
+		headless:       *headless,
 		configPath:     *configPath,
 		force:          *force,
 		observe:        *observe,
@@ -1704,6 +1719,7 @@ Usage:
 
 Flags:
   --config <path>    Path to config file (default: ./config.toml or ~/.bothouse/config.toml)
+  --headless         Run without a desktop tray icon
   --force            Kill any existing instance with the same config before starting
   --version          Print version and exit
   --help             Show this help message

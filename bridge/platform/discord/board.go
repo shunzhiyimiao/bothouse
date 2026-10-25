@@ -48,6 +48,9 @@ func removeBoard(api boardAPI, channelID, messageID string, options ...discordgo
 	if errors.As(err, &rest) && rest.Message != nil && rest.Message.Code == discordgo.ErrCodeUnknownMessage {
 		return nil // already gone
 	}
+	if discordUnrecoverable(err) {
+		return fmt.Errorf("%w: %w", core.ErrDeliveryUnrecoverable, err)
+	}
 	return err
 }
 
@@ -84,6 +87,10 @@ func upsertBoard(api boardAPI, channelID, messageID, content string, options ...
 		} else {
 			var rest *discordgo.RESTError
 			if !errors.As(err, &rest) || rest.Message == nil || rest.Message.Code != discordgo.ErrCodeUnknownMessage {
+				if discordUnrecoverable(err) {
+					// Posting a new board instead would bump an archived thread.
+					return messageID, fmt.Errorf("discord: edit board: %w: %w", core.ErrDeliveryUnrecoverable, err)
+				}
 				return messageID, fmt.Errorf("discord: edit board: %w", err)
 			}
 		}
@@ -93,6 +100,9 @@ func upsertBoard(api boardAPI, channelID, messageID, content string, options ...
 		AllowedMentions: &discordgo.MessageAllowedMentions{},
 	}, options...)
 	if err != nil {
+		if discordUnrecoverable(err) {
+			return "", fmt.Errorf("discord: send board: %w: %w", core.ErrDeliveryUnrecoverable, err)
+		}
 		return "", fmt.Errorf("discord: send board: %w", err)
 	}
 	if err := api.ChannelMessagePin(channelID, sent.ID, options...); err != nil {

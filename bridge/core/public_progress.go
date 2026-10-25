@@ -71,6 +71,9 @@ type progressRecord struct {
 	LastSeq  int64                      `json:"last_seq"`
 	CardSeq  int64                      `json:"card_seq"`
 	FactSeq  int64                      `json:"fact_seq"`
+	// Auto marks a card the bridge opened for a turn whose agent did not
+	// (public_progress_auto.go). Cleared once the agent starts it as its own.
+	Auto bool `json:"auto,omitempty"`
 }
 
 type publicRun struct {
@@ -84,6 +87,11 @@ type publicRun struct {
 	// a fresh request always opens its own card.
 	candidate  *publicRun
 	reportBase int64 // sequence at this turn's adoption; budget is per turn, not per card
+	// Automatic card trigger for this turn (public_progress_auto.go); guarded by mu.
+	autoTimer *time.Timer
+	autoTitle string
+	autoTools int
+	autoOff   bool // the agent manages its own card, the turn is scheduled, or the card is open
 }
 
 // PublicProgress owns run authorization, durable public facts and delivery.
@@ -175,7 +183,7 @@ func NewPublicProgress(dataDir, project string, platforms []Platform) (*PublicPr
 			}
 		}
 		p.records[r.record.Task.ID] = r
-		if resumableTask(r.record.Task, r.record.Accepted, time.Now()) {
+		if !rec.Auto && resumableTask(r.record.Task, r.record.Accepted, time.Now()) {
 			if prev := p.open[r.record.Task.SessionKey]; prev == nil || prev.record.Task.UpdatedAt.Before(r.record.Task.UpdatedAt) {
 				p.open[r.record.Task.SessionKey] = r
 			}
@@ -333,8 +341,14 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 	case "start":
 		t.Title = strings.TrimSpace(req.Title)
 		t.Agent = req.Project
-		t.CreatedAt = time.Now().UTC()
 		kind, key = TaskEventCreated, true
+		if r.record.Auto {
+			// The agent takes over the card the bridge opened: same card, its title.
+			r.record.Auto = false
+			kind = TaskEventFactUpdated
+		} else {
+			t.CreatedAt = time.Now().UTC()
+		}
 	case "milestone":
 		kind, key = TaskEventFactUpdated, true
 	case "waiting":
@@ -366,6 +380,14 @@ func (p *PublicProgress) Report(req PublicProgressRequest) (string, error) {
 	if r != source {
 		r.stopped = source.stopped
 		r.reportBase = base
+		if req.TaskID == "" {
+			// The agent continued an earlier card after the bridge had opened one
+			// for this turn: that automatic card is folded into the continued one.
+			// No other path nests two run locks, so source.mu under r.mu is safe.
+			source.mu.Lock()
+			p.mergeAuto(source, t.Title)
+			source.mu.Unlock()
+		}
 	}
 	p.mu.Lock()
 	if req.TaskID == "" {
@@ -404,6 +426,30 @@ func (p *PublicProgress) finish(token, outcome string) {
 	p.mu.Unlock()
 	if r == nil {
 		return
+	}
+	r.mu.Lock()
+	if r.autoTimer != nil {
+		r.autoTimer.Stop()
+	}
+	auto := r.autoUntouched()
+	r.mu.Unlock()
+	if auto && len(cards) > 0 {
+		// The agent delegated this turn's work onto task-assigned cards after the
+		// bridge had opened one: fold the automatic card into them.
+		title := ""
+		for _, card := range cards {
+			if card != r {
+				card.mu.Lock()
+				title = card.record.Task.Title
+				card.mu.Unlock()
+				break
+			}
+		}
+		if title != "" {
+			r.mu.Lock()
+			p.mergeAuto(r, title)
+			r.mu.Unlock()
+		}
 	}
 	seen := map[*publicRun]bool{r: true}
 	for _, card := range cards {
@@ -474,9 +520,31 @@ func (p *PublicProgress) Flush(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		err := p.flushRun(ctx, r)
+		attempted, err := p.flushRun(ctx, r)
 		r.mu.Lock()
 		id := r.record.Task.ID
+		if errors.Is(err, ErrDeliveryUnrecoverable) {
+			// The platform refused for good (channel or card deleted, access
+			// lost). Retrying every tick cannot succeed and floods the log:
+			// mark what this delivery tried as handled, so neither this loop
+			// nor a restart retries it. Facts accepted while the request was
+			// in flight stay pending and get one try of their own.
+			channel := r.record.Task.ChannelID
+			r.record.CardSeq = max(r.record.CardSeq, attempted)
+			r.record.FactSeq = max(r.record.FactSeq, attempted)
+			saveErr := p.save(r)
+			if r.record.CardSeq >= r.record.Task.Seq && r.record.FactSeq >= r.record.Task.Seq {
+				p.mu.Lock()
+				delete(p.pending, id)
+				p.mu.Unlock()
+			}
+			r.mu.Unlock()
+			slog.Warn("public progress delivery dropped: destination unrecoverable", "task_id", id, "channel", channel, "error", err)
+			if saveErr != nil {
+				slog.Error("public progress: persist dropped delivery failed", "task_id", id, "error", saveErr)
+			}
+			continue
+		}
 		if err == nil && r.record.CardSeq >= r.record.Task.Seq && r.record.FactSeq >= r.record.Task.Seq {
 			p.mu.Lock()
 			delete(p.pending, id)
@@ -489,7 +557,10 @@ func (p *PublicProgress) Flush(ctx context.Context) {
 	}
 }
 
-func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) error {
+// flushRun delivers r's pending card state and facts. attempted is the task
+// sequence this delivery read: facts accepted while it was in flight are not
+// part of it.
+func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) (attempted int64, err error) {
 	// Serialise delivery, not reporting. A slow Discord call must not delay a
 	// new progress report, cancellation, or the spoken final result.
 	r.deliveryMu.Lock()
@@ -497,13 +568,14 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) error {
 	ctx, cancel := context.WithTimeout(parent, 10*time.Second)
 	defer cancel()
 	r.mu.Lock()
-	err := p.save(r) // retries a failed terminal-state checkpoint before sending
+	err = p.save(r) // retries a failed terminal-state checkpoint before sending
 	task, cardSeq, factSeq, lang := r.record.Task.Clone(), r.record.CardSeq, r.record.FactSeq, r.record.Lang
 	platform := r.record.Platform
 	r.mu.Unlock()
+	attempted = task.Seq
 	p.displayNames(task)
 	if err != nil {
-		return err
+		return attempted, err
 	}
 	if cardSeq < task.Seq {
 		deliveryErr := r.publisher.EnsureTaskCard(ctx, task, lang)
@@ -518,10 +590,10 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) error {
 		err = p.save(r)
 		r.mu.Unlock()
 		if err != nil {
-			return err
+			return attempted, err
 		}
 		if deliveryErr != nil {
-			return deliveryErr
+			return attempted, deliveryErr
 		}
 	}
 	for _, ev := range task.Events {
@@ -548,13 +620,13 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) error {
 				err = p.save(r)
 				r.mu.Unlock()
 				if err != nil {
-					return err
+					return attempted, err
 				}
 				slog.Warn("public progress: reporter cannot post; creator posted note", "task_id", task.ID, "reporter", ev.ReporterProject)
 				err = r.publisher.PublishTaskFact(ctx, task, note, lang)
 			}
 			if err != nil {
-				return err
+				return attempted, err
 			}
 		}
 		r.mu.Lock()
@@ -562,10 +634,10 @@ func (p *PublicProgress) flushRun(parent context.Context, r *publicRun) error {
 		err = p.save(r)
 		r.mu.Unlock()
 		if err != nil {
-			return err
+			return attempted, err
 		}
 	}
-	return nil
+	return attempted, nil
 }
 
 func (e *Engine) EnablePublicProgress() error {
@@ -594,7 +666,13 @@ func (e *Engine) withPublicProgress(prompt string, state *interactiveState, sess
 	}
 	state.mu.Lock()
 	state.publicProgressRun = token
+	desc, scheduled := state.turnDesc, state.turnScheduled
 	state.mu.Unlock()
+	// Automatic cards only in workspace channels: in a chat channel they take too much room
+	// (user, 2026-10-26: 「聊天频道不要自动任务卡，太占位置」). Voice turns and private chats are
+	// not workspaces. The agent's own progress start works everywhere.
+	_, workspace := e.WorkspaceParent(session)
+	e.publicProgress.armAuto(token, desc, scheduled || fromVoice || !workspace)
 	return e.publicProgressInstructions(token, session) + prompt
 }
 
@@ -615,6 +693,17 @@ func (e *Engine) beginPublicProgress(platform Platform, session string, stopped 
 }
 
 func (e *Engine) publicProgressInstructions(token, session string) string {
+	return e.progressInstructions(token, session, publicProgressPrompt+publicTaskMembersPrompt)
+}
+
+// Voice cannot delegate; retain task cards without unrelated member/relay instructions.
+func (e *Engine) voiceProgressInstructions(token, session string) string {
+	return e.progressInstructions(token, session, voiceProgressPrompt)
+}
+
+const voiceProgressPrompt = "[Public progress channel]\nOnly for accepted multi-step work, report public status with COMMAND --run RUN_TOKEN --seq N --kind KIND --message 'short status'. Start with --seq 1 --kind start --title 'task title'.RESUME_NOTE Increment seq for update/milestone/waiting/result; retry the same seq/content. Report only meaningful changes (max 64). No cards for chat or questions. Keep reasoning, tools, credentials and conversations private. Report verified facts; result is not human acceptance. This token is for this turn only. Keep the spoken reply short.\n[/Public progress channel]\n\n"
+
+func (e *Engine) progressInstructions(token, session, instructions string) string {
 	command := "bothouse"
 	if path, err := os.Executable(); err == nil {
 		command = path
@@ -634,7 +723,7 @@ func (e *Engine) publicProgressInstructions(token, session string) string {
 		"RUN_TOKEN", token,
 		"RESUME_NOTE", resumeNote,
 		"RELAY_COMMAND", quote(command)+" relay send --from "+quote(e.name)+" --session "+quote(session)+" --data-dir "+quote(e.publicProgress.dataDir),
-	).Replace(publicProgressPrompt + publicTaskMembersPrompt)
+	).Replace(instructions)
 }
 
 const publicTaskMembersPrompt = "[Task card members]\nWhen delegation is already authorized, open each new delegation batch with ASSIGN_COMMAND --run RUN_TOKEN --batch STABLE_BATCH_ID --member UNIQUE_ID --name 'display name' --title 'short assignment' --ref 'path:line of the existing implementation to follow' (for a configured bot, use --reporter-project EXACT_BOUND_PROJECT_ID; its name comes from that project, never from --name). Native children use --name 'explicit child name' and optional --parent existing-member-id; they inherit their owning bot account. --ref is required: name the existing implementation (path:line); for non-code work write --ref '无（新建）'. When several members edit the same files, put 多人改 in the title and add --base BRANCH; the member that changes the shared interface merges first. Omit --id for new work: the batch automatically opens a fresh shared card, even if this turn already reported on another card. Use the SAME batch for all participants in that delegation and on retries; use a DIFFERENT batch for independent parallel work. Batch ids are scoped to this turn. To explicitly continue a known card, replace --batch with --id TASK_ID. Overall reports for a delegation use COMMAND --run RUN_TOKEN --task TASK_ID --seq N --kind KIND --message 'public status'; each card has its own lead sequence, beginning at 1 for a new batch; the grant returns lead_next_seq for explicit continuation. Assignment does not consume a lead sequence. A first update can follow assignment without a separate start. Pass only the returned report_command to that participant. A --reporter-project member gets no report_command (report_via is set instead): dispatch it with the task relay and that bot receives its own member report command there. The participant itself reports immediately with --seq 1 --kind update --message 'started', then increments its own sequence only for meaningful progress, waiting, result, failed or cancelled. Use the same sequence/content on retry. Member results update only that row, not the overall task or acceptance. Ending the lead turn does not finish other delegation batches; report each batch's overall result separately. No raw tools, credentials or reasoning. A member's first report starts its clock; result/failed/cancelled ends it. Do not register a member unless actually dispatching; registration grants no permission to delegate.\n[/Task card members]\n\n"

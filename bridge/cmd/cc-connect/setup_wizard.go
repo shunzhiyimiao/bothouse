@@ -7,6 +7,7 @@ import (
 	"fmt"
 	ccconnect "github.com/chenhg5/cc-connect"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -29,6 +30,14 @@ func (configWizardStore) EnsureHook(event, command string) (bool, error) {
 
 func (bootstrapOnWriteStore) EnsureHook(event, command string) (bool, error) {
 	return config.EnsureWizardHook(event, command) // called after ApplyProjects wrote the config
+}
+
+func (configWizardStore) SetMemoryIndex(project, path string) (bool, error) {
+	return config.SetWizardMemoryIndex(project, path)
+}
+
+func (bootstrapOnWriteStore) SetMemoryIndex(project, path string) (bool, error) {
+	return config.SetWizardMemoryIndex(project, path) // called after ApplyProjects wrote the config
 }
 
 func toCoreSnapshot(ps []config.WizardProjectSnapshot) core.WizardSnapshot {
@@ -141,6 +150,7 @@ func runSetupOnly(cfg *config.Config, configPath string, release func()) {
 	srv.SetConfigFilePath(configPath)
 	srv.SetSetupFeishuSave(saveFeishuSetup)
 	srv.SetWizard(configWizardStore{}, cfg.DataDir)
+	wireAutostart(srv)
 	srv.Start()
 	// The sign-in link carries the token: it goes into a file only you can read and into the
 	// browser; the terminal only shows it when no browser could be opened.
@@ -155,12 +165,16 @@ func runSetupOnly(cfg *config.Config, configPath string, release func()) {
 	defer signal.Stop(sigCh)
 	select {
 	case <-desktopShutdown:
+		slog.Info("shutdown requested", "source", "tray")
 		srv.Stop()
 		release()
-	case <-sigCh:
+		stopDesktopService()
+	case sig := <-sigCh:
+		slog.Info("shutdown requested", "source", "system_signal", "signal", sig.String())
 		srv.Stop()
 		release()
 	case <-core.RestartCh:
+		slog.Info("shutdown requested", "source", "restart_command")
 		srv.Stop()
 		release()
 		exe, err := os.Executable()

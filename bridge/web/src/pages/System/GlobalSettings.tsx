@@ -1,9 +1,11 @@
 import { useEffect, useState, useCallback } from 'react';
+import AutostartSettingCard from '@/components/Autostart/AutostartSettingCard';
 import { useTranslation } from 'react-i18next';
 import { Save, Loader2 } from 'lucide-react';
 import { Card, Button, Input } from '@/components/ui';
 import { getGlobalSettings, updateGlobalSettings, type GlobalSettings as GS } from '@/api/settings';
 import { cn } from '@/lib/utils';
+import ThemeSettingCard from '@/components/Theme/ThemeSettingCard';
 
 const LOG_LEVELS = ['debug', 'info', 'warn', 'error'];
 const ATTACHMENT_OPTS = ['', 'on', 'off'];
@@ -148,6 +150,7 @@ export default function GlobalSettings() {
 
   return (
     <div className="space-y-5">
+      <ThemeSettingCard />
       {/* General */}
       <Card>
         <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">{t('settings.general', 'General')}</h3>
@@ -256,6 +259,8 @@ export default function GlobalSettings() {
           />
         </div>
       </Card>
+
+      <AutostartSettingCard />
 
       {/* Save */}
       <div className="max-w-lg">

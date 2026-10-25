@@ -1117,6 +1117,22 @@ func ApplyWizard(ctx context.Context, env WizardEnv, req WizardRequest) *WizardR
 				addStep(res, ts, nil, stepToolsOn(req.Language, t.Enabled, t.PersonaFile))
 			}
 		}
+		if !r.reused && r.project == pl.fallback && LeadToolFS != nil {
+			// Only the new primary role gets collaboration tools; preserve locally edited scripts.
+			ls := fmt.Sprintf("role %d lead tools", i+1)
+			if tools, skipped, err := InstallLeadTools(env.DataDir, r.workDir, r.AgentType, false); err != nil {
+				addStep(res, ls, err, "")
+			} else {
+				message := tools["tools_dir"]
+				if len(skipped) > 0 {
+					message += fmt.Sprintf(tr3(req.Language,
+						"（保留 %d 个已修改文件）",
+						"（変更済みファイル %d 件を保持）",
+						" (preserved %d modified files)"), len(skipped))
+				}
+				addStep(res, ls, nil, message)
+			}
+		}
 	}
 
 	// 自建平台 team: every member's wizard-made persona (one with a conest marker) gets the team line;
@@ -1261,7 +1277,9 @@ func DefaultAgentYoloMode(agentType string) string {
 }
 
 // KnownAgentYoloMode is DefaultAgentYoloMode for the agent types whose YOLO mode
-// is known; ok is false for any other type (dsh, acp, …), which must not be guessed.
+// is known; ok is false for any other type (dsh, acp, …). The upgrade migration
+// adds "yolo" for acp and dsh itself (config.migrationYoloMode), matching
+// DefaultAgentYoloMode; callers here must not guess other types.
 func KnownAgentYoloMode(agentType string) (mode string, ok bool) {
 	switch strings.ToLower(strings.TrimSpace(agentType)) {
 	case "claudecode", "copilot":
