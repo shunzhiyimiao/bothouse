@@ -1,6 +1,7 @@
 """ctxsvc 查询清洗、推页格式、wiki 路径可配的测试，不加载模型：python3 -I contrib/gate/test_ctxsvc.py"""
 import sys, tempfile, unittest
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ctxsvc
@@ -11,10 +12,10 @@ REPLY = "[replying to 主管: 没卡死，一直在干活]\n正在读 engine.go\
 def make_wiki(d):
     p = Path(d) / "infra"
     p.mkdir()
-    (p / "README.md").write_text("x")
-    (p / "vps.md").write_text("---\nname: vps\ndescription: VPS 一览\n---\n# T\n- 代理端口 7890\n")
+    (p / "README.md").write_text("x", encoding="utf-8")
+    (p / "vps.md").write_text("---\nname: vps\ndescription: VPS 一览\n---\n# T\n- 代理端口 7890\n", encoding="utf-8")
     (Path(d) / "data").mkdir()   # 没有 README.md 的目录不算 wiki 页
-    (Path(d) / "data" / "x.md").write_text("- 代理端口 7890 也在这里\n")
+    (Path(d) / "data" / "x.md").write_text("- 代理端口 7890 也在这里\n", encoding="utf-8")
 
 
 class T(unittest.TestCase):
@@ -48,8 +49,18 @@ class T(unittest.TestCase):
             make_wiki(d)
             ctxsvc.WIKI, ctxsvc._idx = Path(d), None
             got = ctxsvc.context({"key": "discord:1", "text": "代理端口多少"})
-            self.assertEqual(got, {"wiki": [{"path": str(Path(d) / "infra/vps.md"),
+            self.assertEqual(got, {"wiki": [{"path": (Path(d) / "infra/vps.md").as_posix(),
                                              "desc": "VPS 一览 | 6: - 代理端口 7890"}]})
+
+    def test_utf8_wiki_with_cp936_default(self):
+        with tempfile.TemporaryDirectory() as d:
+            make_wiki(d)
+            ctxsvc.WIKI, ctxsvc._idx = Path(d), None
+            # Emulate a Chinese Windows default on UTF-8 CI hosts too; explicit encodings still win.
+            with patch("io.text_encoding", side_effect=lambda encoding, *args: encoding or "cp936"):
+                got = ctxsvc.match_wiki("代理端口多少")
+            self.assertEqual(got, [{"path": (Path(d) / "infra/vps.md").as_posix(),
+                                   "desc": "VPS 一览 | 6: - 代理端口 7890"}])
 
     def test_wiki_off_or_missing(self):
         ctxsvc.WIKI, ctxsvc._idx = None, None
@@ -60,6 +71,17 @@ class T(unittest.TestCase):
     def test_home_shown_as_tilde(self):
         ctxsvc.WIKI = Path.home() / "wiki-test-not-created"
         self.assertEqual(ctxsvc._shown("a/b.md"), "~/wiki-test-not-created/a/b.md")
+
+    def test_windows_paths_shown_with_forward_slashes(self):
+        with patch.object(ctxsvc.Path, "home", return_value=PureWindowsPath("C:/Users/test")):
+            for root, expected in (
+                ("C:/Users/test/wiki", "~/wiki/infra/vps.md"),
+                ("C:/Users/test-other/wiki", "C:/Users/test-other/wiki/infra/vps.md"),
+                ("D:/wiki", "D:/wiki/infra/vps.md"),
+            ):
+                with self.subTest(root=root):
+                    ctxsvc.WIKI = PureWindowsPath(root)
+                    self.assertEqual(ctxsvc._shown("infra/vps.md"), expected)
 
 
 if __name__ == "__main__":
