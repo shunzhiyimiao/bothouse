@@ -163,6 +163,8 @@ jobs:
         if: env.RUN_GO == 'true'
         with:
           python-version: '3.11'
+      - run: python3 -I contrib/gate/test_ctxsvc.py
+        if: env.RUN_GO == 'true'
       - run: python3 -I contrib/gate/test_gate_context.py
         if: env.RUN_GO == 'true'
       - run: python3 -I contrib/gate/test_gate_addressee.py
