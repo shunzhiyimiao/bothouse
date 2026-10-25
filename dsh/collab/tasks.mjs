@@ -25,6 +25,9 @@ export const WORKING = ['assigned', 'accepted', 'asked', 'rework'];
 const REVIEWABLE = ['returned', 'declined', 'escalated'];
 // Default check time after dispatch or rework. Source: user 2026-10-23「这10分钟之内搞不完就滚蛋」.
 export const CHECK_AFTER_S = 10 * 60;
+// User, 2026-10-24: "稳定的一放一收，以小时为力度". An unfinished task
+// with no progress for one hour returns to the existing paused queue.
+const STALE_AFTER_S = 60 * 60;
 // setTimeout's own maximum delay (Node clamps anything larger to 1 ms).
 const MAX_TIMER_MS = 2 ** 31 - 1;
 const STANCE_LINE = /^\s*【(接|问|退|升)】\s*(?:#(\d+))?\s*(.*)$/;
@@ -79,6 +82,7 @@ export class Tasks {
       next: this.db.prepare(`SELECT MIN(next_check_at) AS at FROM tasks WHERE next_check_at IS NOT NULL AND ${LIVE}`),
       active: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND ${LIVE}`),
       paused: this.db.prepare(`SELECT COUNT(*) AS n FROM tasks WHERE room_id = ? AND status IN (${PLACEHOLDERS}) AND paused_at IS NOT NULL`),
+      workspaceActivity: this.db.prepare("SELECT MAX(created_at) AS at FROM messages WHERE room_id = ? AND author_kind = 'role' AND card IS NULL AND deleted = 0"),
       // paused_chat: the chat channel that owned the workspace when the task was paused (resumeClaim).
       park: this.db.prepare(`UPDATE tasks SET paused_at = ?, paused_chat = ?, next_check_at = NULL WHERE room_id = ? AND ${LIVE}`),
       busyOfOwner: this.db.prepare(`SELECT * FROM tasks WHERE owner = ? AND ${LIVE} ORDER BY updated_at DESC`),
@@ -427,6 +431,11 @@ export class Tasks {
   /** Post the reminder for every task past its check time, once each, and wake its owner. */
   tick() {
     if (this.closed || !this.started) return;
+    for (const task of this.q.allBusy.all(...WORKING)) {
+      if (this.store.room(task.room_id)?.kind !== 'workspace') continue;
+      const activity = this.q.workspaceActivity.get(task.room_id).at ?? task.updated_at;
+      if (this.now() - Math.max(task.updated_at, activity) >= STALE_AFTER_S) this.pauseTask(task.id);
+    }
     for (const task of this.q.due.all(this.now(), ...WORKING)) {
       const name = this.nameOf(task.owner);
       const { message } = this.hub.post(task.room_id, {
@@ -469,7 +478,10 @@ export class Tasks {
     if (this.timer !== undefined) this.clearTimer(this.timer);
     this.timer = undefined;
     if (this.closed) return;
-    const at = this.q.next.get(...WORKING).at;
+    const stale = this.q.allBusy.all(...WORKING)
+      .filter(t => this.store.room(t.room_id)?.kind === 'workspace')
+      .map(t => Math.max(t.updated_at, this.q.workspaceActivity.get(t.room_id).at ?? 0) + STALE_AFTER_S);
+    const at = [this.q.next.get(...WORKING).at, ...stale].filter(t => t != null).sort((a, b) => a - b)[0];
     if (at == null) return;
     const ms = Math.min(MAX_TIMER_MS, Math.max(0, (at - this.now()) * 1000));
     this.timer = this.setTimer(() => { this.timer = undefined; this.tick(); }, ms);
@@ -539,6 +551,18 @@ export class Tasks {
     const released = this.release(roomId, claim);
     this.arm();
     return released;
+  }
+
+  /** Pause one task through the same queue/release path as park; other work stays busy. */
+  pauseTask(id) {
+    const task = this.task(id);
+    if (!task || task.paused_at != null || !WORKING.includes(task.status)
+        || this.store.room(task.room_id)?.kind !== 'workspace') return false;
+    this.db.prepare(`UPDATE tasks SET paused_at = ?, paused_chat = ?, next_check_at = NULL
+      WHERE id = ?`).run(this.now(), this.store.workspaceOwner(task.room_id), id);
+    if (this.countActive(task.room_id) === 0) this.release(task.room_id);
+    this.changed(id);
+    return true;
   }
 
   /**
