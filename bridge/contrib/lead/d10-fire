@@ -1,5 +1,5 @@
 #!/usr/bin/env -S python3 -I
-# d10 到点时由 cc-connect timer 调用：队友已交回就不发「暂停」，没交回才发。
+# d10 到点时由桥（bothouse / cc-connect）的 timer 调用：队友已交回就不发「暂停」，没交回才发。
 # 用法：d10-fire <队友id> <简称> <派活epoch> <session_key> <发消息的 cc-connect project> [--renew N] [--dry-run]（d10 填好参数）
 # 续期：没交回时再看最近 10 分钟她有没有动静（团队文件里她的 "wt" 目录下有新提交，或频道里她发了非状态行、非表态的新消息），
 #   有就再挂一个 10 分钟的 d10-fire（--renew 计数），最多续 MAX_RENEW 次；续到上限仍没交回、或续期定时没挂上，照发暂停。
@@ -97,10 +97,18 @@ def last_commit_epoch(teammate_id: str) -> float:
     return latest
 
 
+def cc_bin():
+    return _team.cc_bin()
+
+
 def renew(tid, what, since, skey, proj, n, dry):
     me = str(Path(__file__).resolve())
     cmd = " ".join(shlex.quote(x) for x in (me, tid, what, f"{since:.0f}", skey, proj, "--renew", str(n)))
-    argv = ["cc-connect", "timer", "add", "-p", proj, "-s", skey, "--delay", "10m",
+    cc = cc_bin()
+    if not cc:
+        print("续期定时没挂上（找不到 bothouse / cc-connect，可设 CC_BIN）", file=sys.stderr)
+        return 1
+    argv = [cc, "timer", "add", "-p", proj, "-s", skey, "--delay", "10m",
             "--desc", f"10分钟砍活:{what}(续{n})", "--exec", cmd]
     if dry:
         print(f"有新动静，会续 10 分钟（第 {n}/{MAX_RENEW} 次）：{' '.join(argv)}")
@@ -164,7 +172,11 @@ def main(argv):
     if dry:
         print(f"未交回，会发暂停：{msg}")
         return 0
-    return subprocess.run(["cc-connect", "send", "-p", proj, "-s", skey, "--message", msg]).returncode
+    cc = cc_bin()
+    if not cc:
+        print("暂停没发出（找不到 bothouse / cc-connect，可设 CC_BIN）", file=sys.stderr)
+        return 1
+    return subprocess.run([cc, "send", "-p", proj, "-s", skey, "--message", msg]).returncode
 
 
 if __name__ == "__main__":
