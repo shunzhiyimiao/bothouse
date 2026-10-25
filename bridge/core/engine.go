@@ -430,6 +430,7 @@ type Engine struct {
 	instantReply     InstantReplyCfg
 	references       ReferenceRenderCfg
 	relayManager     *RelayManager
+	notBoundNoticed  sync.Map // notBoundKey → posted (team_hints.go)
 	eventIdleTimeout time.Duration
 	maxTurnTime      time.Duration // absolute wall-clock cap per turn (0 = disabled)
 	// agentSessionIdleTimeoutNanos 在单轮正常结束后关闭空闲的 live agent 进程，
@@ -3340,7 +3341,8 @@ func (e *Engine) handleMessage(p Platform, msg *Message) {
 	}
 	// "/stop all" stops this bot's work in the whole channel. It runs before
 	// any mention/gate filtering so every bot in the channel honours it.
-	if !msg.FromBot && len(msg.Images) == 0 && IsStopAllCommand(msg.Content) {
+	// A stop word that calls no bot (no @, no reply) means the same.
+	if !msg.FromBot && len(msg.Images) == 0 && (IsStopAllCommand(msg.Content) || e.isUnaddressedStop(msg)) {
 		e.cmdStopAll(p, msg)
 		return
 	}

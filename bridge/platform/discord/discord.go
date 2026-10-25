@@ -91,6 +91,7 @@ type Platform struct {
 	groupReplyAllChannels      []string // conest: when set, groupReplyAll only applies in these channels (and their threads)
 	shareSessionInChannel      bool
 	threadIsolation            bool
+	threadOps                  discordThreadOps // tests only; nil = the live session
 	respondToAtEveryoneAndHere bool
 	proxyURL                   *url.URL
 	handler                    core.MessageHandler
@@ -103,6 +104,7 @@ type Platform struct {
 	botBurstMu                 sync.Mutex
 	botBursts                  map[string]*botBurst // maomao fork: channel+bot → handoff being collected
 	seenInteractions           sync.Map             // interaction ID dedup: prevents duplicate slash/button events
+	decidedPermits             decidedPermits       // maomao fork: delegated approvals already decided by their requester (permit_dedupe.go)
 	self                       core.Platform
 
 	mu               sync.RWMutex
@@ -448,6 +450,20 @@ func parseDiscordSessionKeyChannelID(sessionKey string) (string, error) {
 	return parts[1], nil
 }
 
+func (p *Platform) threadOpsOrSession() discordThreadOps {
+	if p.threadOps != nil {
+		return p.threadOps
+	}
+	return sessionThreadOps{session: p.session}
+}
+
+// inThread reports whether channelID is a Discord thread. A failed lookup
+// counts as not a thread.
+func inThread(channelID string, ops discordThreadOps) bool {
+	ch, err := ops.ResolveChannel(channelID)
+	return err == nil && ch != nil && isThreadChannelType(ch.Type)
+}
+
 func resolveSessionKeyForChannel(channelID, userID string, shareSessionInChannel bool, threadIsolation bool, ops discordThreadOps) string {
 	if !threadIsolation {
 		return buildSessionKey(channelID, userID, shareSessionInChannel)
@@ -766,6 +782,10 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		slog.Debug("discord: ignoring old message after restart", "timestamp", m.Timestamp)
 		return
 	}
+	if fromBot {
+		// maomao fork: before isBotNotice drops ✅ lines and ReferencedMessage is cleared.
+		p.notePermitReceipt(m.Message)
+	}
 	if !fromBot && !core.AllowList(p.allowFrom, m.Author.ID) {
 		slog.Debug("discord: message from unauthorized user", "user", m.Author.ID)
 		return
@@ -823,7 +843,8 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		}
 	}
 	// "/stop all" from a user reaches every bot in the channel, mentioned or not.
-	stopAll := !fromBot && core.IsStopAllCommand(approvalContent)
+	bareStop := !fromBot && isBareStop(m, mentioned, p.botID)
+	stopAll := !fromBot && (core.IsStopAllCommand(approvalContent) || bareStop)
 	if m.GuildID != "" && !replyAll && !stopAll {
 		if !mentioned {
 			slog.Debug("discord: ignoring guild message without bot mention", "channel", m.ChannelID)
@@ -852,8 +873,12 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 	// which never exists. Empty value falls back to SessionKey extraction
 	// (the historical, non-isolated behavior).
 	channelKey := ""
-	if p.threadIsolation && m.GuildID != "" {
-		threadSessionKey, threadCtx, parentChannelID, err := resolveThreadReplyContext(m, p.botID, sessionThreadOps{session: p.session})
+	if p.threadIsolation && m.GuildID != "" && stopAll && !mentioned && !inThread(m.ChannelID, p.threadOpsOrSession()) {
+		// A stop for the whole parent channel: keep the channel session key. Thread
+		// resolution would open a new thread titled after the stop word and stop nothing.
+		channelKey = m.ChannelID
+	} else if p.threadIsolation && m.GuildID != "" {
+		threadSessionKey, threadCtx, parentChannelID, err := resolveThreadReplyContext(m, p.botID, p.threadOpsOrSession())
 		if err != nil {
 			slog.Warn("discord: thread isolation setup failed, falling back", "message", m.ID, "channel", m.ChannelID, "error", err)
 		} else {
@@ -902,6 +927,7 @@ func (p *Platform) handleMessageCreate(s *discordgo.Session, m *discordgo.Messag
 		Mentioned: mentioned || (!fromBot && nameCalled(m.Content, p.botName, teamBotNames(p.botID)...)), FromBot: fromBot, Direct: direct,
 	}
 	msg.AddressedOther = !fromBot && !msg.Mentioned && addressedOther(m.Content, p.botID)
+	msg.StopAll = bareStop && !msg.Mentioned && !msg.AddressedOther
 	// Consume explicit approvals before bot labels, batching or the gate.
 	if fromBot && strings.HasPrefix(approvalContent, "/permit") {
 		if m.WebhookID == "" && mentioned && p.CanApprovePermission(m.Author.ID) {
@@ -1197,6 +1223,14 @@ func (p *Platform) Reply(ctx context.Context, rctx any, content string) error {
 	if p.session == nil {
 		return fmt.Errorf("discord session is not ready")
 	}
+	// maomao fork: drop a /permit for a request another approver already decided; no error,
+	// since an error here could surface as one more message (permit_dedupe.go).
+	if p.decidedPermitIn(content) != "" {
+		content = p.dropDecidedPermits(content)
+		if strings.TrimSpace(content) == "" {
+			return nil
+		}
+	}
 	switch rc := rctx.(type) {
 	case *interactionReplyCtx:
 		return p.sendInteraction(rc, content)
@@ -1211,6 +1245,11 @@ func (p *Platform) Reply(ctx context.Context, rctx any, content string) error {
 func (p *Platform) Send(ctx context.Context, rctx any, content string) error {
 	if p.session == nil {
 		return fmt.Errorf("discord session is not ready")
+	}
+	// maomao fork: refuse a /permit for a request another approver already decided, so the
+	// sending agent (bothouse send) learns it and stops (permit_dedupe.go).
+	if id := p.decidedPermitIn(content); id != "" {
+		return errPermitDecided(id)
 	}
 	switch rc := rctx.(type) {
 	case *interactionReplyCtx:
