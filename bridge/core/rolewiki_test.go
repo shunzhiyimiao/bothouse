@@ -703,3 +703,121 @@ func TestApplyWizardKeepsUserWikiWithoutIngest(t *testing.T) {
 		t.Fatalf("wiki step = %+v (all %+v)", s, res.Steps)
 	}
 }
+
+// cloud_web has no fixed room, yet a main wiki the wizard made still gets its cron jobs (anchored to
+// cloudWebWikiSession) and the session-end export hook, with no wiki field in the request.
+func TestApplyWizardCloudWebWikiCron(t *testing.T) {
+	useRepoWiki(t)
+	noHardware(t)
+	noLocalHub(t)
+	hub := fakeHub(t, "bot-secret")
+	mainWiki := filepath.Join(t.TempDir(), "wiki")
+	t.Setenv("WIKI_DIR", mainWiki)
+	cron := &memCron{}
+	req := cloudWebReq(hub.URL, "bot-secret", WizardRole{Name: "Juzi"})
+	req.FallbackRole = "Juzi"
+	res := ApplyWizard(context.Background(), WizardEnv{Store: &hookMemStore{memStore: newMemStore()}, DataDir: t.TempDir(), CLIs: testCLIs, Cron: cron}, req)
+	if !res.Saved {
+		t.Fatalf("apply: %+v", res)
+	}
+	steps := wizardSteps(res)
+	if s := steps["wiki hook"]; !s.OK || !strings.Contains(s.Detail, "agent.closed") {
+		t.Fatalf("wiki hook = %+v (all %+v)", s, res.Steps)
+	}
+	if s := steps["wiki cron"]; !s.OK || !strings.Contains(s.Detail, "added") || len(cron.jobs) != len(wikiCronJobs) {
+		t.Fatalf("wiki cron = %+v, jobs %d", s, len(cron.jobs))
+	}
+	for _, j := range cron.jobs {
+		if j.SessionKey != cloudWebWikiSession || !j.Mute || !strings.Contains(j.Exec, filepath.Join(mainWiki, "bin", "ingest.py")) {
+			t.Fatalf("job = %+v", j)
+		}
+	}
+}
+
+// A main wiki the user had (no mark): the cron jobs never run its ingest.py, only the role wikis' sub-wiki.py.
+func TestApplyWizardWikiCronSkipsUserMainWiki(t *testing.T) {
+	useRepoWiki(t)
+	noHardware(t)
+	req := oneRoleRequest(t)
+	mainWiki := filepath.Join(t.TempDir(), "wiki")
+	t.Setenv("WIKI_DIR", mainWiki)
+	if err := os.MkdirAll(filepath.Join(mainWiki, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mainWiki, "bin", "ingest.py"), []byte("# mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cron := &memCron{}
+	res := ApplyWizard(context.Background(), WizardEnv{Store: &hookMemStore{memStore: newMemStore()}, DataDir: t.TempDir(), CLIs: testCLIs, Cron: cron}, req)
+	if !res.Saved {
+		t.Fatalf("apply: %+v", res)
+	}
+	if s := wizardSteps(res)["wiki cron"]; !s.OK || len(cron.jobs) != len(wikiCronJobs) {
+		t.Fatalf("wiki cron = %+v, jobs %d", s, len(cron.jobs))
+	}
+	for _, j := range cron.jobs {
+		if strings.Contains(j.Exec, "ingest.py") || !strings.Contains(j.Exec, "sub-wiki.py") {
+			t.Fatalf("job runs the user's wiki: %q", j.Exec)
+		}
+	}
+}
+
+// The same with no role wikis to run: no cron job at all.
+func TestApplyWizardWikiCronUserMainWikiNoSub(t *testing.T) {
+	t.Setenv("WIKI_DIR", t.TempDir())
+	dir, _ := FindWiki()
+	if err := os.MkdirAll(filepath.Join(dir, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "bin", "ingest.py"), []byte("# mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cron := &memCron{}
+	res := &WizardResult{}
+	applyWizardWiki(res, WizardEnv{Cron: cron}, WizardRequest{Language: "en"}, "lead", "discord:1")
+	if len(cron.jobs) != 0 || len(res.Steps) != 1 || !strings.Contains(res.Steps[0].Detail, "not made by the wizard") {
+		t.Fatalf("jobs %d steps %+v", len(cron.jobs), res.Steps)
+	}
+}
+
+// A main wiki the user had (bin/ingest.py, no .bothouse-main) is searched, never written: models picked in the
+// wizard do not go into its config.json, and the directory is byte-for-byte the same afterwards (G16).
+func TestApplyWizardUserWikiModelsNotWritten(t *testing.T) {
+	useRepoWiki(t)
+	noHardware(t)
+	req := oneRoleRequest(t)
+	req.Wiki = &WizardWiki{Daily: "haiku", Night: "sonnet", Split: "opus"}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("WIKI_DIR", "")
+	mainWiki := filepath.Join(home, "wiki")
+	for p, c := range map[string]string{"bin/ingest.py": "# mine\n", "bin/search.py": "# mine\n",
+		"config.json": "{\n  \"ingest_engine\": \"codex\"\n}\n", ".git/HEAD": "ref: refs/heads/main\n",
+		"MEMORY.md": "- [a](a/README.md)\n", "a/README.md": "# a\n"} {
+		f := filepath.Join(mainWiki, p)
+		if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(f, []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before := snapshotDir(t, mainWiki)
+	res := ApplyWizard(context.Background(), WizardEnv{Store: &hookMemStore{memStore: newMemStore()}, DataDir: t.TempDir(), CLIs: testCLIs, Cron: &memCron{}}, req)
+	if !res.Saved {
+		t.Fatalf("apply: %+v", res)
+	}
+	after := snapshotDir(t, mainWiki)
+	if len(after) != len(before) {
+		t.Fatalf("~/wiki files %d -> %d", len(before), len(after))
+	}
+	for p, v := range before {
+		if after[p] != v {
+			t.Fatalf("%s changed: %q -> %q", p, v, after[p])
+		}
+	}
+	if s := wizardSteps(res)["wiki"]; s.Step == "" || !s.OK || !strings.Contains(s.Detail, "not saved") {
+		t.Fatalf("wiki step = %+v (all %+v)", s, res.Steps)
+	}
+}
