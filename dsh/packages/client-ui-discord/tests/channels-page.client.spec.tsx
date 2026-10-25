@@ -227,6 +227,69 @@ describe('channels page', () => {
     expect(input.disabled).toBe(false)
   })
 
+  it('sends from the send button through the same path as Enter, multi-line drafts included', async () => {
+    const send = vi.fn(() => Promise.resolve())
+    render(<ChannelsPage {...props(ready, send)} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    const button = screen.getByRole('button', { name: '发送' }) as HTMLButtonElement
+    expect(input.getAttribute('enterkeyhint')).toBe('send')
+    expect(button.disabled).toBe(true)
+    fireEvent.change(input, { target: { value: '第一行\n第二行' } })
+    expect(button.disabled).toBe(false)
+    fireEvent.click(button)
+    expect(send).toHaveBeenCalledExactlyOnceWith('第一行\n第二行')
+    await act(async () => {})
+    expect(input.value).toBe('')
+  })
+
+  it('does not send on the Enter that confirms an iOS/Safari IME composition (keyCode 229)', () => {
+    const send = vi.fn(() => Promise.resolve())
+    render(<ChannelsPage {...props(ready, send)} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: 'ni hao' } })
+    fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 })
+    expect(send).not.toHaveBeenCalled()
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(send).toHaveBeenCalledExactlyOnceWith('ni hao')
+  })
+
+  it('does not save a message edit on the IME-confirming Enter (keyCode 229)', async () => {
+    const mine: ChannelSnapshot = {
+      ...ready,
+      messages: [{ id: 9, room_id: 1, author_kind: 'user', author: 'owner', name: '我', text: '旧', created_at: 1, card: null, from_turn: null }],
+    }
+    const editMessage = vi.fn(async () => {})
+    render(<ChannelsPage {...props(mine)} editMessage={editMessage} withdrawMessage={vi.fn(async () => {})} />)
+    fireEvent.click(screen.getByRole('button', { name: zh.messageEdit }))
+    const box = screen.getByRole('textbox', { name: zh.messageEdit })
+    fireEvent.change(box, { target: { value: 'xin' } })
+    fireEvent.keyDown(box, { key: 'Enter', keyCode: 229 })
+    expect(editMessage).not.toHaveBeenCalled()
+    fireEvent.keyDown(box, { key: 'Enter' })
+    expect(editMessage).toHaveBeenCalledExactlyOnceWith(9, 'xin')
+  })
+
+  it('does not pick an @ candidate on the IME-confirming Enter (keyCode 229)', () => {
+    const send = vi.fn(async () => {})
+    render(<ChannelsPage {...props(ready, send)} />)
+    const input = screen.getByRole('combobox') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: '@', selectionStart: 1, selectionEnd: 1 } })
+    expect(screen.getByRole('listbox')).toBeTruthy()
+    fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 })
+    expect(input.value).toBe('@')
+    expect(screen.getByRole('listbox')).toBeTruthy()
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('uses the short placeholder on touch or narrow screens', () => {
+    const original = window.matchMedia
+    window.matchMedia = ((query: string) => ({ matches: true, media: query, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia
+    try {
+      render(<ChannelsPage {...props(ready)} />)
+      expect(screen.getByRole('combobox').getAttribute('placeholder')).toBe('发消息到 #general')
+    } finally { window.matchMedia = original }
+  })
+
   it('keeps a failed draft and its error in the room where it was sent', async () => {
     let reject!: (reason: Error) => void
     const send = vi.fn(() => new Promise<void>((_resolve, fail) => { reject = fail }))
@@ -337,6 +400,16 @@ describe('channels page', () => {
     fireEvent.change(input, { target: { value: 'design' } })
     await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }) })
     expect(p.createRoom).toHaveBeenCalledExactlyOnceWith('design')
+  })
+
+  it('does not create a channel on the IME-confirming Enter (keyCode 229)', async () => {
+    const p = props({ ...ready, thinking: {} })
+    render(<ChannelsPage {...p} />)
+    fireEvent.click(screen.getByRole('button', { name: zh.newRoom }))
+    const input = screen.getByRole('textbox', { name: zh.newRoom })
+    fireEvent.change(input, { target: { value: 'she ji' } })
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 }) })
+    expect(p.createRoom).not.toHaveBeenCalled()
   })
 
   it('adds a member through the dialog and keeps the form on a refusal', async () => {

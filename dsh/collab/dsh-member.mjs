@@ -38,7 +38,7 @@ export function memberStatus(hub, tasks = hub?.tasks) {
 import { mentions, nameCalled, split } from './mentions.mjs';
 import { quotePrefix } from './store.mjs';
 import { progressCardOf } from './cloudweb.mjs';
-import { attachmentBlocks, namedAttachmentBlocks, nativeAttachmentBlocks } from './attachments.mjs';
+import { attachmentBlocks, namedAttachmentBlocks, nativeAttachmentBlocks, undeliveredReasonZh } from './attachments.mjs';
 
 const CONTEXT_LIMIT = 50;
 const CLOSE_TIMEOUT_MS = 5_000;
@@ -497,14 +497,14 @@ export class DshMembers {
     // text and the channel gets a system note, instead of failing the turn: a failed turn
     // never advances the cursor, so the same image would block the room.
     const { parts: media, dropped: refused } = await nativeAttachmentBlocks(this.rt.ctx.attachments, namedAttachmentBlocks(this.rt.files, unseen));
-    const dropped = refused.map(d => `\n\n[${d.name}: attachment not delivered (${d.reason})]`).join('');
+    const dropped = refused.map(d => `\n\n[${d.name}: 附件未送达（${undeliveredReasonZh(d)}）]`).join('');
     const input = this.rt.createUserMessage({ content: [{ type: 'text', text: promptText(room, member, unseen, memberStatus(this.hub), this.store.dispatchMode(room.id), this.store) + dropped + (this.rt.later?.instructions(member.id, room.id) ?? '') }, ...media], source: { kind: 'user' } });
     const seqBefore = agent.session.seq;
     if (!this.store.markSent(jobId, agent.session.id, seqBefore, input.id)) return;
     if (refused.length) {
       this.hub.post(room.id, {
         authorKind: 'system', author: 'system', name: 'system', clientKey: `dsh-job-${jobId}-attachments-dropped`,
-        text: `⚠️ 有附件没送到 ${member.name}：${refused.map(d => `${d.name}（${d.reason}）`).join('；')}`,
+        text: `⚠️ 有附件没送到 ${member.name}：${refused.map(d => `${d.name}（${undeliveredReasonZh(d)}）`).join('；')}`,
       });
     }
     await this.admitAndSettle(job, member, agent, input, seqBefore);

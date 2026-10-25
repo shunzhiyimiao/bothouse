@@ -3,7 +3,7 @@ window.__ModuleLoader__.load({
  factory: (require) => {
  var module = { exports: {} };
  var exports = module.exports;
-(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".FPh_aW_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.FPh_aW_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.FPh_aW_rooms, .FPh_aW_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n.FPh_aW_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.FPh_aW_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.FPh_aW_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.FPh_aW_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.FPh_aW_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.FPh_aW_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.FPh_aW_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.FPh_aW_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.FPh_aW_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.FPh_aW_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.FPh_aW_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.FPh_aW_chatHead {\n  -webkit-app-region: drag;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.FPh_aW_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.FPh_aW_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.FPh_aW_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.FPh_aW_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.FPh_aW_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.FPh_aW_system .FPh_aW_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.FPh_aW_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.FPh_aW_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.FPh_aW_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.FPh_aW_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.FPh_aW_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.FPh_aW_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.FPh_aW_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.FPh_aW_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.FPh_aW_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.FPh_aW_messageBody {\n  min-width: 0;\n}\n\n.FPh_aW_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.FPh_aW_author {\n  font-weight: 600;\n}\n\n.FPh_aW_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.FPh_aW_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.FPh_aW_edited {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.FPh_aW_ownActions {\n  opacity: 0;\n  gap: 8px;\n  margin-left: auto;\n  display: inline-flex;\n}\n\n.FPh_aW_message:hover .FPh_aW_ownActions, .FPh_aW_ownActions:focus-within {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .FPh_aW_ownActions {\n    opacity: 1;\n  }\n}\n\n.FPh_aW_editBox {\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 4px;\n  display: flex;\n}\n\n.FPh_aW_editInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-height: 60px;\n  color: inherit;\n  font: inherit;\n  resize: vertical;\n  padding: 8px;\n}\n\n.FPh_aW_editBar {\n  justify-content: flex-end;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.FPh_aW_editBar .FPh_aW_time {\n  margin-right: auto;\n}\n\n.FPh_aW_text {\n  white-space: normal;\n  overflow-wrap: anywhere;\n}\n\n.FPh_aW_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.FPh_aW_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.FPh_aW_card[data-state=\"retrying\"] {\n  border-left-color: var(--dsw-alias-state-warning-primary, #faa61a);\n}\n\n.FPh_aW_cardButtons {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.FPh_aW_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.FPh_aW_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.FPh_aW_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.FPh_aW_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.FPh_aW_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.FPh_aW_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.FPh_aW_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.FPh_aW_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.FPh_aW_message {\n  position: relative;\n}\n\n.FPh_aW_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.FPh_aW_quoteDeleted {\n  font-style: italic;\n}\n\n.FPh_aW_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.FPh_aW_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n.FPh_aW_message:hover .FPh_aW_replyButton, .FPh_aW_message:focus-within .FPh_aW_replyButton, .FPh_aW_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .FPh_aW_replyButton {\n    opacity: 1;\n  }\n}\n\n.FPh_aW_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.FPh_aW_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.FPh_aW_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.FPh_aW_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.FPh_aW_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.FPh_aW_composerRow {\n  align-items: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.FPh_aW_mentionButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 40px;\n  height: 40px;\n  color: var(--dsw-alias-label-secondary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  cursor: pointer;\n  flex: none;\n  font-size: 18px;\n  font-weight: 600;\n}\n\n.FPh_aW_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.FPh_aW_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.FPh_aW_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.FPh_aW_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.FPh_aW_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.FPh_aW_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.FPh_aW_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.FPh_aW_mentionName {\n  font-weight: 600;\n}\n\n.FPh_aW_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.FPh_aW_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.FPh_aW_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.FPh_aW_input {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 100%;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  padding: 10px 14px;\n}\n\n.FPh_aW_input:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.FPh_aW_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.FPh_aW_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.FPh_aW_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.FPh_aW_offline {\n  opacity: .5;\n}\n\n.FPh_aW_memberAvatar {\n  position: relative;\n}\n\n.FPh_aW_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.FPh_aW_offline .FPh_aW_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.FPh_aW_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.FPh_aW_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.FPh_aW_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .FPh_aW_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .FPh_aW_rooms, .FPh_aW_members {\n    display: none;\n  }\n}\n\n.FPh_aW_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.FPh_aW_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.FPh_aW_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.FPh_aW_roomInput, .FPh_aW_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.FPh_aW_roomInput {\n  margin: 2px 0 6px;\n}\n\n.FPh_aW_roomInput:focus-visible, .FPh_aW_fieldInput:focus-visible, .FPh_aW_iconButton:focus-visible, .FPh_aW_linkButton:focus-visible, .FPh_aW_addMemberButton:focus-visible, .FPh_aW_primaryButton:focus-visible, .FPh_aW_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.FPh_aW_addMemberButton {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.FPh_aW_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.FPh_aW_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.FPh_aW_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.FPh_aW_memberRow .FPh_aW_member:hover {\n  background: none;\n}\n\n.FPh_aW_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.FPh_aW_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.FPh_aW_memberRow:hover .FPh_aW_memberActions, .FPh_aW_memberRow:focus-within .FPh_aW_memberActions {\n  opacity: 1;\n}\n\n.FPh_aW_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.FPh_aW_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.FPh_aW_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.FPh_aW_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.FPh_aW_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.FPh_aW_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.FPh_aW_field textarea {\n  resize: vertical;\n}\n\n.FPh_aW_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.FPh_aW_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.FPh_aW_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.FPh_aW_primaryButton, .FPh_aW_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.FPh_aW_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.FPh_aW_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.FPh_aW_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.FPh_aW_memberFailed .FPh_aW_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.FPh_aW_memberFailed .FPh_aW_presence {\n  background: #ed4245;\n}\n\n.FPh_aW_mobileButton, .FPh_aW_drawerBackdrop {\n  display: none;\n}\n\n.FPh_aW_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.FPh_aW_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.FPh_aW_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.FPh_aW_panelToggleEnd {\n  margin-left: auto;\n}\n\n.FPh_aW_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n.FPh_aW_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.FPh_aW_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n.FPh_aW_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.FPh_aW_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  .FPh_aW_page.FPh_aW_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .FPh_aW_page.FPh_aW_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .FPh_aW_page.FPh_aW_roomsHidden.FPh_aW_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .FPh_aW_roomsHidden > .FPh_aW_rooms, .FPh_aW_membersHidden > .FPh_aW_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .FPh_aW_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .FPh_aW_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .FPh_aW_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .FPh_aW_panelToggle {\n    display: none;\n  }\n\n  .FPh_aW_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .FPh_aW_rooms.FPh_aW_drawerOpen, .FPh_aW_members.FPh_aW_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .FPh_aW_rooms.FPh_aW_drawerOpen {\n    left: 0;\n  }\n\n  .FPh_aW_members.FPh_aW_drawerOpen {\n    right: 0;\n  }\n\n  .FPh_aW_memberActions {\n    opacity: 1;\n  }\n\n  .FPh_aW_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.FPh_aW_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.FPh_aW_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.FPh_aW_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.FPh_aW_taskBoard {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin-bottom: 8px;\n  padding-bottom: 8px;\n}\n\n.FPh_aW_leadControl {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin: 0 0 10px;\n  padding: 0 8px 10px;\n}\n\n.FPh_aW_leadControl .FPh_aW_field {\n  color: var(--dsw-alias-label-tertiary);\n  gap: 5px;\n  font-size: 12px;\n}\n\n.FPh_aW_fieldLabel {\n  color: var(--dsw-alias-label-tertiary);\n  margin-bottom: 5px;\n  font-size: 12px;\n  display: block;\n}\n\n.FPh_aW_leadControl .FPh_aW_fieldInput {\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  text-align: left;\n  cursor: pointer;\n}\n\n.FPh_aW_leadMenu {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  gap: 2px;\n  margin-top: 4px;\n  padding: 4px;\n  display: grid;\n}\n\n.FPh_aW_leadOption {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n}\n\n.FPh_aW_leadOption:hover, .FPh_aW_leadOption[aria-selected=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.FPh_aW_taskSection + .FPh_aW_taskSection {\n  margin-top: 8px;\n}\n\n.FPh_aW_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.FPh_aW_taskOwnerGroup + .FPh_aW_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n.FPh_aW_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n.FPh_aW_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.FPh_aW_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.FPh_aW_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.FPh_aW_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.FPh_aW_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.FPh_aW_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.FPh_aW_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.FPh_aW_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.FPh_aW_taskDone summary {\n  cursor: pointer;\n}\n\n.FPh_aW_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.FPh_aW_taskStatus[data-status=\"asked\"], .FPh_aW_taskStatus[data-status=\"escalated\"], .FPh_aW_taskStatus[data-status=\"declined\"], .FPh_aW_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.FPh_aW_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.FPh_aW_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.FPh_aW_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.FPh_aW_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.FPh_aW_taskMemberName {\n  font-weight: 600;\n}\n\n.FPh_aW_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.FPh_aW_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n\n.FPh_aW_attachments {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 4px 0;\n  display: flex;\n}\n\n.FPh_aW_attachmentImage {\n  border-radius: 4px;\n  max-width: min(320px, 100%);\n  max-height: 240px;\n  display: block;\n}\n\n.FPh_aW_attachmentThumb {\n  object-fit: cover;\n  vertical-align: middle;\n  border-radius: 3px;\n  width: 32px;\n  height: 32px;\n}\n\n.FPh_aW_attachmentFile {\n  background: var(--background-secondary, #7f7f7f26);\n  color: inherit;\n  border-radius: 4px;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 8px;\n  text-decoration: none;\n  display: inline-flex;\n}\n\n.FPh_aW_attachmentSize {\n  opacity: .6;\n  font-size: .85em;\n}\n\n.FPh_aW_attachmentAudio {\n  flex-direction: column;\n  gap: 2px;\n  width: min(320px, 100%);\n  display: flex;\n}\n\n.FPh_aW_attachmentAudio audio {\n  width: 100%;\n}\n\n.FPh_aW_attachmentAudio a {\n  color: inherit;\n  text-decoration: none;\n}\n\n.FPh_aW_attachmentFile {\n  overflow-wrap: anywhere;\n  max-width: 100%;\n}\n\n.FPh_aW_chatHead button, .FPh_aW_chatHead input, .FPh_aW_chatHead select, .FPh_aW_chatHead a, .FPh_aW_chatHead [role=\"menu\"] {\n  -webkit-app-region: no-drag;\n}\n\n.FPh_aW_text pre, .FPh_aW_text table {\n  max-width: 100%;\n  overflow-x: auto;\n}\n";document.head.appendChild(s)})();
+(function(){var s=document.createElement('style');s.setAttribute('data-dsh-plugin',"dsh-experimental-client-ui-discord");s.textContent=".AKWTXG_page {\n  width: 100%;\n  height: 100%;\n  min-height: 0;\n  padding-top: var(--dsh-frame-top-clearance, 0px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  grid-template-columns: 220px minmax(0, 1fr) 240px;\n  font-size: 14px;\n  line-height: 1.5;\n  display: grid;\n}\n\n.AKWTXG_notice {\n  max-width: 480px;\n  color: var(--dsw-alias-label-secondary);\n  text-align: center;\n  grid-column: 1 / -1;\n  place-self: center;\n  padding: 24px;\n}\n\n.AKWTXG_rooms, .AKWTXG_members {\n  background: var(--dsw-alias-bg-layer-2);\n  min-height: 0;\n  padding: 8px 8px 16px;\n  overflow-y: auto;\n}\n\n.AKWTXG_groupTitle {\n  color: var(--dsw-alias-label-tertiary);\n  letter-spacing: .02em;\n  margin: 12px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.AKWTXG_room {\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  align-items: center;\n  gap: 6px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.AKWTXG_room:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.AKWTXG_room:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.AKWTXG_workspace {\n  padding-left: 22px;\n  font-size: .95em;\n}\n\n.AKWTXG_roomLabel {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.AKWTXG_activeCount {\n  color: var(--dsw-alias-label-tertiary);\n  flex-shrink: 0;\n  margin-left: auto;\n  font-size: 11px;\n}\n\n.AKWTXG_activeBusy {\n  color: var(--dsw-alias-label-primary);\n}\n\n.AKWTXG_roomActive {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.AKWTXG_hash {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 16px;\n}\n\n.AKWTXG_chat {\n  flex-direction: column;\n  min-width: 0;\n  min-height: 0;\n  display: flex;\n}\n\n.AKWTXG_chatHead {\n  -webkit-app-region: drag;\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  align-items: center;\n  gap: 6px;\n  height: 44px;\n  padding: 0 16px;\n  font-weight: 600;\n  display: flex;\n}\n\n.AKWTXG_log {\n  flex: 1;\n  min-height: 0;\n  padding: 8px 0 12px;\n  overflow-y: auto;\n}\n\n.AKWTXG_guide {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  align-items: flex-start;\n  gap: 10px;\n  margin: 16px;\n  padding: 14px 16px;\n  display: flex;\n}\n\n.AKWTXG_empty {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 24px 16px;\n}\n\n.AKWTXG_message {\n  grid-template-columns: 36px minmax(0, 1fr);\n  gap: 12px;\n  padding: 6px 16px;\n  display: grid;\n}\n\n.AKWTXG_message:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.AKWTXG_system .AKWTXG_text {\n  color: var(--dsw-alias-label-tertiary);\n  font-style: italic;\n}\n\n.AKWTXG_avatar {\n  corner-shape: round;\n  color: #fff;\n  border-radius: 50%;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  font-weight: 700;\n  display: grid;\n  position: relative;\n}\n\n.AKWTXG_avatarImage {\n  object-fit: cover;\n  border-radius: 50%;\n  width: 100%;\n  height: 100%;\n  position: absolute;\n  inset: 0;\n}\n\n.AKWTXG_avatarSmall {\n  width: 28px;\n  height: 28px;\n  font-size: 12px;\n}\n\n.AKWTXG_avatarAnchor {\n  align-self: start;\n  position: relative;\n}\n\n.AKWTXG_avatarButton {\n  cursor: pointer;\n  background: none;\n  border: 0;\n  border-radius: 50%;\n  padding: 0;\n}\n\n.AKWTXG_avatarMenu {\n  z-index: 3;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-width: 140px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  top: calc(100% + 4px);\n  left: 0;\n}\n\n.AKWTXG_avatarMenuTitle {\n  padding: 4px 8px;\n  font-weight: 700;\n}\n\n.AKWTXG_avatarMenuItem {\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 6px 8px;\n}\n\n.AKWTXG_avatarMenuItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.AKWTXG_messageBody {\n  min-width: 0;\n}\n\n.AKWTXG_messageHead {\n  align-items: baseline;\n  gap: 6px;\n  display: flex;\n}\n\n.AKWTXG_author {\n  font-weight: 600;\n}\n\n.AKWTXG_time {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.AKWTXG_tag {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  white-space: nowrap;\n  padding: 0 4px;\n  font-size: 10px;\n  font-weight: 600;\n}\n\n.AKWTXG_edited {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n.AKWTXG_ownActions {\n  margin-left: auto;\n  margin-right: var(--channels-reply-clearance);\n  opacity: 0;\n  gap: 8px;\n  display: inline-flex;\n}\n\n.AKWTXG_message:hover .AKWTXG_ownActions, .AKWTXG_ownActions:focus-within {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .AKWTXG_ownActions {\n    opacity: 1;\n  }\n}\n\n.AKWTXG_editBox {\n  flex-direction: column;\n  gap: 6px;\n  margin-top: 4px;\n  display: flex;\n}\n\n.AKWTXG_editInput {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  min-height: 60px;\n  color: inherit;\n  font: inherit;\n  resize: vertical;\n  padding: 8px;\n}\n\n.AKWTXG_editBar {\n  justify-content: flex-end;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.AKWTXG_editBar .AKWTXG_time {\n  margin-right: auto;\n}\n\n.AKWTXG_text {\n  white-space: normal;\n  overflow-wrap: anywhere;\n}\n\n.AKWTXG_card {\n  border-left: 4px solid var(--dsw-alias-state-business-primary);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-layer-2);\n  margin-top: 4px;\n  padding: 6px 10px;\n}\n\n.AKWTXG_card[data-state=\"failed\"] {\n  border-left-color: var(--dsw-alias-state-error-primary);\n}\n\n.AKWTXG_card[data-state=\"retrying\"] {\n  border-left-color: var(--dsw-alias-state-warning-primary, #faa61a);\n}\n\n.AKWTXG_cardButtons {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.AKWTXG_cardTitle {\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.AKWTXG_cardHead {\n  justify-content: space-between;\n  align-items: center;\n  gap: 8px;\n  display: flex;\n}\n\n.AKWTXG_cardViews {\n  gap: 4px;\n  display: flex;\n}\n\n.AKWTXG_cardViewButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  padding: 0 6px;\n  font-size: 12px;\n}\n\n.AKWTXG_cardViewButton[aria-pressed=\"true\"] {\n  background: var(--dsw-alias-bg-base);\n  font-weight: 600;\n}\n\n.AKWTXG_permActions {\n  flex-wrap: wrap;\n  align-items: center;\n  gap: 8px;\n  margin-top: 6px;\n  display: flex;\n}\n\n.AKWTXG_permScope {\n  color: var(--dsw-alias-text-secondary);\n  flex-basis: 100%;\n  font-size: 12px;\n}\n\n.AKWTXG_permStatus {\n  margin-top: 6px;\n  font-size: 13px;\n  font-weight: 600;\n}\n\n.AKWTXG_message {\n  --channels-reply-clearance: 36px;\n  position: relative;\n}\n\n.AKWTXG_quote {\n  border-left: 2px solid var(--dsw-alias-label-tertiary);\n  min-width: 0;\n  color: var(--dsw-alias-label-tertiary);\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  gap: 6px;\n  margin-bottom: 2px;\n  padding-left: 8px;\n  font-size: 12px;\n  display: flex;\n  overflow: hidden;\n}\n\n.AKWTXG_quoteDeleted {\n  font-style: italic;\n}\n\n.AKWTXG_quoteAuthor {\n  flex: none;\n  font-weight: 600;\n}\n\n.AKWTXG_replyButton {\n  opacity: 0;\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  cursor: pointer;\n  border: 0;\n  padding: 0 6px;\n  position: absolute;\n  top: 4px;\n  right: 16px;\n}\n\n.AKWTXG_message:hover .AKWTXG_replyButton, .AKWTXG_message:focus-within .AKWTXG_replyButton, .AKWTXG_replyButton:focus-visible {\n  opacity: 1;\n}\n\n@media (hover: none) {\n  .AKWTXG_replyButton {\n    opacity: 1;\n  }\n}\n\n.AKWTXG_replyBar {\n  border-radius: var(--dsw-radius-sm);\n  color: var(--dsw-alias-label-tertiary);\n  background: var(--dsw-alias-bg-layer-2);\n  align-items: center;\n  gap: 8px;\n  margin-bottom: 6px;\n  padding: 4px 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.AKWTXG_replyBarText {\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n}\n\n.AKWTXG_replyCancel {\n  color: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: none;\n}\n\n.AKWTXG_working {\n  min-height: 20px;\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 16px;\n  font-size: 12px;\n}\n\n.AKWTXG_composer {\n  padding: 0 16px 16px;\n  position: relative;\n}\n\n.AKWTXG_composerRow {\n  align-items: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.AKWTXG_mentionButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 40px;\n  height: 40px;\n  color: var(--dsw-alias-label-secondary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  cursor: pointer;\n  flex: none;\n  font-size: 18px;\n  font-weight: 600;\n}\n\n.AKWTXG_mentionButton:hover:not(:disabled) {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.AKWTXG_sendButton {\n  border-radius: var(--dsw-radius-md);\n  height: 40px;\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  font: inherit;\n  cursor: pointer;\n  border: 0;\n  flex: none;\n  padding: 0 14px;\n  font-weight: 600;\n}\n\n.AKWTXG_sendButton:disabled {\n  opacity: .45;\n  cursor: default;\n}\n\n.AKWTXG_sendButton:focus-visible, .AKWTXG_mentionButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.AKWTXG_mentionPopup {\n  z-index: 2;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  background: var(--dsw-alias-bg-base);\n  max-height: 320px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  flex-direction: column;\n  padding: 6px;\n  display: flex;\n  position: absolute;\n  bottom: calc(100% - 8px);\n  left: 16px;\n  right: 16px;\n}\n\n.AKWTXG_mentionPopup > [role=\"listbox\"] {\n  min-height: 0;\n  overflow-y: auto;\n}\n\n.AKWTXG_mentionTitle {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 4px 8px 6px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.AKWTXG_mentionItem {\n  border-radius: var(--dsw-radius-sm);\n  cursor: pointer;\n  align-items: center;\n  gap: 10px;\n  padding: 6px 8px;\n  display: flex;\n}\n\n.AKWTXG_mentionActive {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.AKWTXG_mentionName {\n  font-weight: 600;\n}\n\n.AKWTXG_mentionMeta {\n  color: var(--dsw-alias-label-tertiary);\n  margin-left: auto;\n  font-size: 12px;\n}\n\n.AKWTXG_mentionHint {\n  border-top: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-tertiary);\n  padding: 6px 8px 2px;\n  font-size: 11px;\n}\n\n.AKWTXG_sendError {\n  color: var(--dsw-alias-state-error-primary);\n  margin-bottom: 6px;\n  font-size: 12px;\n}\n\n.AKWTXG_input {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-md);\n  width: 100%;\n  max-height: 40vh;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-layer-2);\n  font: inherit;\n  resize: none;\n  field-sizing: content;\n  padding: 10px 14px;\n}\n\n.AKWTXG_input:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.AKWTXG_member {\n  border-radius: var(--dsw-radius-sm);\n  min-width: 0;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  flex: 1;\n  align-items: center;\n  gap: 10px;\n  padding: 5px 8px;\n  display: flex;\n}\n\n.AKWTXG_member:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.AKWTXG_member:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.AKWTXG_offline {\n  opacity: .5;\n}\n\n.AKWTXG_memberAvatar {\n  position: relative;\n}\n\n.AKWTXG_presence {\n  border: 2px solid var(--dsw-alias-bg-layer-2);\n  corner-shape: round;\n  background: #23a55a;\n  border-radius: 50%;\n  width: 10px;\n  height: 10px;\n  position: absolute;\n  bottom: -2px;\n  right: -2px;\n}\n\n.AKWTXG_offline .AKWTXG_presence {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.AKWTXG_memberText {\n  flex-direction: column;\n  min-width: 0;\n  display: flex;\n}\n\n.AKWTXG_memberName {\n  align-items: center;\n  gap: 6px;\n  display: flex;\n}\n\n.AKWTXG_memberStatus {\n  color: var(--dsw-alias-label-tertiary);\n  font-size: 12px;\n}\n\n@media (width <= 900px) {\n  .AKWTXG_page {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .AKWTXG_rooms, .AKWTXG_members {\n    display: none;\n  }\n}\n\n.AKWTXG_groupHead {\n  justify-content: space-between;\n  align-items: center;\n  padding-right: 4px;\n  display: flex;\n}\n\n.AKWTXG_iconButton {\n  border-radius: var(--dsw-radius-sm);\n  width: 22px;\n  height: 22px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  font-size: 16px;\n  line-height: 1;\n}\n\n.AKWTXG_iconButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.AKWTXG_roomInput, .AKWTXG_fieldInput {\n  box-sizing: border-box;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  font: inherit;\n  padding: 6px 8px;\n}\n\n.AKWTXG_roomInput {\n  margin: 2px 0 6px;\n}\n\n.AKWTXG_roomInput:focus-visible, .AKWTXG_fieldInput:focus-visible, .AKWTXG_iconButton:focus-visible, .AKWTXG_linkButton:focus-visible, .AKWTXG_addMemberButton:focus-visible, .AKWTXG_primaryButton:focus-visible, .AKWTXG_secondaryButton:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.AKWTXG_addMemberButton {\n  border: 1px dashed var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  width: 100%;\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  margin: 4px 0;\n  padding: 7px 8px;\n}\n\n.AKWTXG_addMemberButton:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.AKWTXG_memberRow {\n  border-radius: var(--dsw-radius-sm);\n  align-items: center;\n  display: flex;\n  position: relative;\n}\n\n.AKWTXG_memberRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.AKWTXG_memberRow .AKWTXG_member:hover {\n  background: none;\n}\n\n.AKWTXG_memberModel {\n  color: var(--dsw-alias-label-tertiary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 11px;\n  overflow: hidden;\n}\n\n.AKWTXG_memberActions {\n  color: var(--dsw-alias-label-tertiary);\n  opacity: 0;\n  flex: none;\n  gap: 4px;\n  padding-right: 6px;\n  font-size: 12px;\n  display: flex;\n}\n\n.AKWTXG_memberRow:hover .AKWTXG_memberActions, .AKWTXG_memberRow:focus-within .AKWTXG_memberActions {\n  opacity: 1;\n}\n\n.AKWTXG_linkButton {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-secondary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 2px 4px;\n  font-size: 12px;\n}\n\n.AKWTXG_linkButton:hover {\n  color: var(--dsw-alias-label-primary);\n  text-decoration: underline;\n}\n\n.AKWTXG_dialogBackdrop {\n  z-index: 10;\n  background: #00000073;\n  place-items: center;\n  padding: 16px;\n  display: grid;\n  position: fixed;\n  inset: 0;\n}\n\n.AKWTXG_dialog {\n  border-radius: var(--dsw-radius-lg);\n  width: min(460px, 100%);\n  max-height: calc(100vh - 32px);\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-bg-base);\n  box-shadow: var(--dsw-elevation-panel, 0 12px 32px #0000004d);\n  flex-direction: column;\n  gap: 12px;\n  padding: 20px;\n  display: flex;\n  overflow-y: auto;\n}\n\n.AKWTXG_dialogTitle {\n  margin: 0;\n  font-size: 16px;\n}\n\n.AKWTXG_field {\n  color: var(--dsw-alias-label-secondary);\n  flex-direction: column;\n  gap: 4px;\n  font-size: 12px;\n  display: flex;\n}\n\n.AKWTXG_field textarea {\n  resize: vertical;\n}\n\n.AKWTXG_choiceRow {\n  flex-wrap: wrap;\n  gap: 12px;\n  display: flex;\n}\n\n.AKWTXG_choice {\n  color: var(--dsw-alias-label-primary, inherit);\n  cursor: pointer;\n  align-items: center;\n  gap: 4px;\n  font-size: 13px;\n  display: inline-flex;\n}\n\n.AKWTXG_dialogActions {\n  justify-content: flex-end;\n  gap: 8px;\n  display: flex;\n}\n\n.AKWTXG_primaryButton, .AKWTXG_secondaryButton {\n  border-radius: var(--dsw-radius-sm);\n  font: inherit;\n  cursor: pointer;\n  padding: 7px 14px;\n}\n\n.AKWTXG_primaryButton {\n  color: #fff;\n  background: var(--dsw-alias-state-business-primary);\n  border: 0;\n}\n\n.AKWTXG_primaryButton:disabled {\n  cursor: not-allowed;\n  opacity: .5;\n}\n\n.AKWTXG_secondaryButton {\n  border: 1px solid var(--dsw-alias-border-l2);\n  color: var(--dsw-alias-label-primary);\n  background: none;\n}\n\n.AKWTXG_memberFailed .AKWTXG_memberStatus {\n  color: var(--dsw-alias-state-error-primary, #ed4245);\n}\n\n.AKWTXG_memberFailed .AKWTXG_presence {\n  background: #ed4245;\n}\n\n.AKWTXG_mobileButton, .AKWTXG_drawerBackdrop {\n  display: none;\n}\n\n.AKWTXG_panelToggle {\n  border-radius: var(--dsw-radius-sm);\n  width: 28px;\n  height: 28px;\n  color: var(--dsw-alias-label-tertiary);\n  font: inherit;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  justify-content: center;\n  align-items: center;\n  font-size: 16px;\n  line-height: 1;\n  display: inline-flex;\n}\n\n.AKWTXG_panelToggle:hover {\n  color: var(--dsw-alias-label-primary);\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.AKWTXG_panelToggle:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.AKWTXG_panelToggleEnd {\n  margin-left: auto;\n}\n\n.AKWTXG_capabilityMenu {\n  z-index: 4;\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  max-height: 260px;\n  box-shadow: var(--dsw-elevation-panel, 0 8px 24px #0000003d);\n  gap: 2px;\n  padding: 5px;\n  display: grid;\n  position: absolute;\n  bottom: calc(100% + 4px);\n  left: 0;\n  right: 0;\n  overflow-y: auto;\n}\n\n.AKWTXG_capabilityItem:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.AKWTXG_capabilityHelp {\n  color: var(--dsw-alias-label-secondary);\n  white-space: normal;\n  margin: 6px;\n  font-size: 12px;\n}\n\n.AKWTXG_capabilityItem:focus-visible {\n  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color);\n}\n\n.AKWTXG_capabilityItem {\n  text-align: left;\n  cursor: pointer;\n  color: var(--dsw-alias-label-secondary);\n  white-space: nowrap;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n  font-size: 12px;\n  font-weight: 400;\n}\n\n@media (width >= 901px) {\n  .AKWTXG_page.AKWTXG_roomsHidden {\n    grid-template-columns: minmax(0, 1fr) 240px;\n  }\n\n  .AKWTXG_page.AKWTXG_membersHidden {\n    grid-template-columns: 220px minmax(0, 1fr);\n  }\n\n  .AKWTXG_page.AKWTXG_roomsHidden.AKWTXG_membersHidden {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .AKWTXG_roomsHidden > .AKWTXG_rooms, .AKWTXG_membersHidden > .AKWTXG_members {\n    display: none;\n  }\n}\n\n@media (width <= 900px) {\n  .AKWTXG_page {\n    position: relative;\n    overflow: hidden;\n  }\n\n  .AKWTXG_mobileButton {\n    min-width: 40px;\n    min-height: 40px;\n    color: inherit;\n    font: inherit;\n    cursor: pointer;\n    background: none;\n    border: 0;\n    border-radius: 6px;\n    justify-content: center;\n    align-items: center;\n    display: inline-flex;\n  }\n\n  .AKWTXG_mobileButton:last-child {\n    margin-left: auto;\n  }\n\n  .AKWTXG_panelToggle {\n    display: none;\n  }\n\n  .AKWTXG_drawerBackdrop {\n    z-index: 4;\n    background: #00000073;\n    border: 0;\n    display: block;\n    position: absolute;\n    inset: 0;\n  }\n\n  .AKWTXG_rooms.AKWTXG_drawerOpen, .AKWTXG_members.AKWTXG_drawerOpen {\n    z-index: 5;\n    box-sizing: border-box;\n    width: min(280px, 85%);\n    display: block;\n    position: absolute;\n    top: 0;\n    bottom: 0;\n    box-shadow: 0 0 24px #0000004d;\n  }\n\n  .AKWTXG_rooms.AKWTXG_drawerOpen {\n    left: 0;\n  }\n\n  .AKWTXG_members.AKWTXG_drawerOpen {\n    right: 0;\n  }\n\n  .AKWTXG_memberActions {\n    opacity: 1;\n  }\n\n  .AKWTXG_messageHead {\n    flex-wrap: wrap;\n  }\n}\n\n.AKWTXG_avatarPicker {\n  flex-wrap: wrap;\n  gap: 8px;\n  display: flex;\n}\n\n.AKWTXG_avatarOption {\n  cursor: pointer;\n  background: none;\n  border: 2px solid #0000;\n  border-radius: 50%;\n  padding: 2px;\n  display: grid;\n}\n\n.AKWTXG_avatarOption[aria-checked=\"true\"] {\n  border-color: var(--dsw-alias-accent, #5865f2);\n}\n\n.AKWTXG_taskBoard {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin-bottom: 8px;\n  padding-bottom: 8px;\n}\n\n.AKWTXG_leadControl {\n  border-bottom: 1px solid var(--dsw-alias-border-l2);\n  margin: 0 0 10px;\n  padding: 0 8px 10px;\n}\n\n.AKWTXG_leadControl .AKWTXG_field {\n  color: var(--dsw-alias-label-tertiary);\n  gap: 5px;\n  font-size: 12px;\n}\n\n.AKWTXG_fieldLabel {\n  color: var(--dsw-alias-label-tertiary);\n  margin-bottom: 5px;\n  font-size: 12px;\n  display: block;\n}\n\n.AKWTXG_leadControl .AKWTXG_fieldInput {\n  width: 100%;\n  color: var(--dsw-alias-label-primary);\n  text-align: left;\n  cursor: pointer;\n}\n\n.AKWTXG_leadMenu {\n  border: 1px solid var(--dsw-alias-border-l2);\n  border-radius: var(--dsw-radius-sm);\n  background: var(--dsw-alias-bg-base);\n  gap: 2px;\n  margin-top: 4px;\n  padding: 4px;\n  display: grid;\n}\n\n.AKWTXG_leadOption {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary);\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  background: none;\n  border: 0;\n  padding: 5px 8px;\n}\n\n.AKWTXG_leadOption:hover, .AKWTXG_leadOption[aria-selected=\"true\"] {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.AKWTXG_taskSection + .AKWTXG_taskSection {\n  margin-top: 8px;\n}\n\n.AKWTXG_taskSectionTitle {\n  color: var(--dsw-alias-label-secondary);\n  margin: 0 0 4px;\n  padding: 0 8px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.AKWTXG_taskOwnerGroup + .AKWTXG_taskOwnerGroup {\n  margin-top: 4px;\n}\n\n.AKWTXG_taskOwnerName {\n  color: var(--dsw-alias-label-tertiary);\n  padding: 0 8px;\n  font-size: 12px;\n}\n\n.AKWTXG_taskList {\n  margin: 0;\n  padding: 0;\n  list-style: none;\n}\n\n.AKWTXG_taskRow {\n  border-radius: var(--dsw-radius-sm);\n  padding: 6px 8px;\n}\n\n.AKWTXG_taskRow:hover {\n  background: var(--dsw-alias-interactive-bg-hover);\n}\n\n.AKWTXG_taskLine {\n  align-items: center;\n  gap: 6px;\n  min-width: 0;\n  display: flex;\n}\n\n.AKWTXG_taskTitle {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  overflow: hidden;\n}\n\n.AKWTXG_taskMeta {\n  color: var(--dsw-alias-label-tertiary);\n  flex-wrap: wrap;\n  gap: 0 8px;\n  font-size: 12px;\n  display: flex;\n}\n\n.AKWTXG_taskLinks {\n  gap: 8px;\n  display: flex;\n}\n\n.AKWTXG_taskEmpty {\n  color: var(--dsw-alias-label-tertiary);\n  margin: 0 8px;\n  font-size: 12px;\n}\n\n.AKWTXG_taskDone summary {\n  cursor: pointer;\n}\n\n.AKWTXG_taskStatus {\n  border-radius: var(--dsw-radius-xs);\n  color: var(--dsw-alias-label-primary-inverted);\n  background: var(--dsw-alias-state-business-primary);\n  flex: none;\n  padding: 0 4px;\n  font-size: 10px;\n  font-style: normal;\n  font-weight: 600;\n}\n\n.AKWTXG_taskStatus[data-status=\"asked\"], .AKWTXG_taskStatus[data-status=\"escalated\"], .AKWTXG_taskStatus[data-status=\"declined\"], .AKWTXG_taskStatus[data-status=\"rework\"] {\n  background: var(--dsw-alias-state-warning-primary, var(--dsw-alias-state-error-primary));\n}\n\n.AKWTXG_taskStatus[data-status=\"done\"] {\n  background: var(--dsw-alias-label-tertiary);\n}\n\n.AKWTXG_taskCard {\n  margin-top: 4px;\n  font-style: normal;\n}\n\n.AKWTXG_taskMembers {\n  margin: 4px 0 0;\n  padding: 0;\n  list-style: none;\n}\n\n.AKWTXG_taskMember {\n  align-items: center;\n  gap: 8px;\n  font-size: 13px;\n  display: flex;\n}\n\n.AKWTXG_taskMemberName {\n  font-weight: 600;\n}\n\n.AKWTXG_taskSub {\n  color: var(--dsw-alias-label-secondary);\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.AKWTXG_focused {\n  background: var(--dsw-alias-interactive-bg-hover);\n  outline: 2px solid var(--dsw-alias-state-business-primary);\n}\n\n.AKWTXG_attachments {\n  flex-wrap: wrap;\n  gap: 6px;\n  margin: 4px 0;\n  display: flex;\n}\n\n.AKWTXG_attachmentImage {\n  border-radius: 4px;\n  max-width: min(320px, 100%);\n  max-height: 240px;\n  display: block;\n}\n\n.AKWTXG_attachmentThumb {\n  object-fit: cover;\n  vertical-align: middle;\n  border-radius: 3px;\n  width: 32px;\n  height: 32px;\n}\n\n.AKWTXG_attachmentFile {\n  background: var(--background-secondary, #7f7f7f26);\n  color: inherit;\n  border-radius: 4px;\n  align-items: center;\n  gap: 4px;\n  padding: 4px 8px;\n  text-decoration: none;\n  display: inline-flex;\n}\n\n.AKWTXG_attachmentSize {\n  opacity: .6;\n  font-size: .85em;\n}\n\n.AKWTXG_attachmentAudio {\n  flex-direction: column;\n  gap: 2px;\n  width: min(320px, 100%);\n  display: flex;\n}\n\n.AKWTXG_attachmentAudio audio {\n  width: 100%;\n}\n\n.AKWTXG_attachmentAudio a {\n  color: inherit;\n  text-decoration: none;\n}\n\n.AKWTXG_attachmentFile {\n  overflow-wrap: anywhere;\n  max-width: 100%;\n}\n\n.AKWTXG_chatHead button, .AKWTXG_chatHead input, .AKWTXG_chatHead select, .AKWTXG_chatHead a, .AKWTXG_chatHead [role=\"menu\"] {\n  -webkit-app-region: no-drag;\n}\n\n.AKWTXG_text pre, .AKWTXG_text table {\n  max-width: 100%;\n  overflow-x: auto;\n}\n";document.head.appendChild(s)})();
 Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 let _deepseek_ai_dsh_client_ui_primitives = require("@deepseek-ai/dsh-client-ui-primitives");
 let react_jsx_runtime = require("react/jsx-runtime");
@@ -672,141 +672,142 @@ function ChannelsIcon({ size }) {
 }
 // src/client/ChannelsPage.module.css
 var ChannelsPage_module_default = {
-	"activeBusy": "FPh_aW_activeBusy",
-	"activeCount": "FPh_aW_activeCount",
-	"addMemberButton": "FPh_aW_addMemberButton",
-	"attachmentAudio": "FPh_aW_attachmentAudio",
-	"attachmentFile": "FPh_aW_attachmentFile",
-	"attachmentImage": "FPh_aW_attachmentImage",
-	"attachments": "FPh_aW_attachments",
-	"attachmentSize": "FPh_aW_attachmentSize",
-	"attachmentThumb": "FPh_aW_attachmentThumb",
-	"author": "FPh_aW_author",
-	"avatar": "FPh_aW_avatar",
-	"avatarAnchor": "FPh_aW_avatarAnchor",
-	"avatarButton": "FPh_aW_avatarButton",
-	"avatarImage": "FPh_aW_avatarImage",
-	"avatarMenu": "FPh_aW_avatarMenu",
-	"avatarMenuItem": "FPh_aW_avatarMenuItem",
-	"avatarMenuTitle": "FPh_aW_avatarMenuTitle",
-	"avatarOption": "FPh_aW_avatarOption",
-	"avatarPicker": "FPh_aW_avatarPicker",
-	"avatarSmall": "FPh_aW_avatarSmall",
-	"capabilityHelp": "FPh_aW_capabilityHelp",
-	"capabilityItem": "FPh_aW_capabilityItem",
-	"capabilityMenu": "FPh_aW_capabilityMenu",
-	"card": "FPh_aW_card",
-	"cardButtons": "FPh_aW_cardButtons",
-	"cardHead": "FPh_aW_cardHead",
-	"cardTitle": "FPh_aW_cardTitle",
-	"cardViewButton": "FPh_aW_cardViewButton",
-	"cardViews": "FPh_aW_cardViews",
-	"chat": "FPh_aW_chat",
-	"chatHead": "FPh_aW_chatHead",
-	"choice": "FPh_aW_choice",
-	"choiceRow": "FPh_aW_choiceRow",
-	"composer": "FPh_aW_composer",
-	"composerRow": "FPh_aW_composerRow",
-	"dialog": "FPh_aW_dialog",
-	"dialogActions": "FPh_aW_dialogActions",
-	"dialogBackdrop": "FPh_aW_dialogBackdrop",
-	"dialogTitle": "FPh_aW_dialogTitle",
-	"drawerBackdrop": "FPh_aW_drawerBackdrop",
-	"drawerOpen": "FPh_aW_drawerOpen",
-	"editBar": "FPh_aW_editBar",
-	"editBox": "FPh_aW_editBox",
-	"edited": "FPh_aW_edited",
-	"editInput": "FPh_aW_editInput",
-	"empty": "FPh_aW_empty",
-	"field": "FPh_aW_field",
-	"fieldInput": "FPh_aW_fieldInput",
-	"fieldLabel": "FPh_aW_fieldLabel",
-	"focused": "FPh_aW_focused",
-	"groupHead": "FPh_aW_groupHead",
-	"groupTitle": "FPh_aW_groupTitle",
-	"guide": "FPh_aW_guide",
-	"hash": "FPh_aW_hash",
-	"iconButton": "FPh_aW_iconButton",
-	"input": "FPh_aW_input",
-	"leadControl": "FPh_aW_leadControl",
-	"leadMenu": "FPh_aW_leadMenu",
-	"leadOption": "FPh_aW_leadOption",
-	"linkButton": "FPh_aW_linkButton",
-	"log": "FPh_aW_log",
-	"member": "FPh_aW_member",
-	"memberActions": "FPh_aW_memberActions",
-	"memberAvatar": "FPh_aW_memberAvatar",
-	"memberFailed": "FPh_aW_memberFailed",
-	"memberModel": "FPh_aW_memberModel",
-	"memberName": "FPh_aW_memberName",
-	"memberRow": "FPh_aW_memberRow",
-	"members": "FPh_aW_members",
-	"membersHidden": "FPh_aW_membersHidden",
-	"memberStatus": "FPh_aW_memberStatus",
-	"memberText": "FPh_aW_memberText",
-	"mentionActive": "FPh_aW_mentionActive",
-	"mentionButton": "FPh_aW_mentionButton",
-	"mentionHint": "FPh_aW_mentionHint",
-	"mentionItem": "FPh_aW_mentionItem",
-	"mentionMeta": "FPh_aW_mentionMeta",
-	"mentionName": "FPh_aW_mentionName",
-	"mentionPopup": "FPh_aW_mentionPopup",
-	"mentionTitle": "FPh_aW_mentionTitle",
-	"message": "FPh_aW_message",
-	"messageBody": "FPh_aW_messageBody",
-	"messageHead": "FPh_aW_messageHead",
-	"mobileButton": "FPh_aW_mobileButton",
-	"notice": "FPh_aW_notice",
-	"offline": "FPh_aW_offline",
-	"ownActions": "FPh_aW_ownActions",
-	"page": "FPh_aW_page",
-	"panelToggle": "FPh_aW_panelToggle",
-	"panelToggleEnd": "FPh_aW_panelToggleEnd",
-	"permActions": "FPh_aW_permActions",
-	"permScope": "FPh_aW_permScope",
-	"permStatus": "FPh_aW_permStatus",
-	"presence": "FPh_aW_presence",
-	"primaryButton": "FPh_aW_primaryButton",
-	"quote": "FPh_aW_quote",
-	"quoteAuthor": "FPh_aW_quoteAuthor",
-	"quoteDeleted": "FPh_aW_quoteDeleted",
-	"replyBar": "FPh_aW_replyBar",
-	"replyBarText": "FPh_aW_replyBarText",
-	"replyButton": "FPh_aW_replyButton",
-	"replyCancel": "FPh_aW_replyCancel",
-	"room": "FPh_aW_room",
-	"roomActive": "FPh_aW_roomActive",
-	"roomInput": "FPh_aW_roomInput",
-	"roomLabel": "FPh_aW_roomLabel",
-	"rooms": "FPh_aW_rooms",
-	"roomsHidden": "FPh_aW_roomsHidden",
-	"secondaryButton": "FPh_aW_secondaryButton",
-	"sendError": "FPh_aW_sendError",
-	"system": "FPh_aW_system",
-	"tag": "FPh_aW_tag",
-	"taskBoard": "FPh_aW_taskBoard",
-	"taskCard": "FPh_aW_taskCard",
-	"taskDone": "FPh_aW_taskDone",
-	"taskEmpty": "FPh_aW_taskEmpty",
-	"taskLine": "FPh_aW_taskLine",
-	"taskLinks": "FPh_aW_taskLinks",
-	"taskList": "FPh_aW_taskList",
-	"taskMember": "FPh_aW_taskMember",
-	"taskMemberName": "FPh_aW_taskMemberName",
-	"taskMembers": "FPh_aW_taskMembers",
-	"taskMeta": "FPh_aW_taskMeta",
-	"taskOwnerGroup": "FPh_aW_taskOwnerGroup",
-	"taskOwnerName": "FPh_aW_taskOwnerName",
-	"taskRow": "FPh_aW_taskRow",
-	"taskSection": "FPh_aW_taskSection",
-	"taskSectionTitle": "FPh_aW_taskSectionTitle",
-	"taskStatus": "FPh_aW_taskStatus",
-	"taskSub": "FPh_aW_taskSub",
-	"taskTitle": "FPh_aW_taskTitle",
-	"text": "FPh_aW_text",
-	"time": "FPh_aW_time",
-	"working": "FPh_aW_working",
-	"workspace": "FPh_aW_workspace"
+	"activeBusy": "AKWTXG_activeBusy",
+	"activeCount": "AKWTXG_activeCount",
+	"addMemberButton": "AKWTXG_addMemberButton",
+	"attachmentAudio": "AKWTXG_attachmentAudio",
+	"attachmentFile": "AKWTXG_attachmentFile",
+	"attachmentImage": "AKWTXG_attachmentImage",
+	"attachments": "AKWTXG_attachments",
+	"attachmentSize": "AKWTXG_attachmentSize",
+	"attachmentThumb": "AKWTXG_attachmentThumb",
+	"author": "AKWTXG_author",
+	"avatar": "AKWTXG_avatar",
+	"avatarAnchor": "AKWTXG_avatarAnchor",
+	"avatarButton": "AKWTXG_avatarButton",
+	"avatarImage": "AKWTXG_avatarImage",
+	"avatarMenu": "AKWTXG_avatarMenu",
+	"avatarMenuItem": "AKWTXG_avatarMenuItem",
+	"avatarMenuTitle": "AKWTXG_avatarMenuTitle",
+	"avatarOption": "AKWTXG_avatarOption",
+	"avatarPicker": "AKWTXG_avatarPicker",
+	"avatarSmall": "AKWTXG_avatarSmall",
+	"capabilityHelp": "AKWTXG_capabilityHelp",
+	"capabilityItem": "AKWTXG_capabilityItem",
+	"capabilityMenu": "AKWTXG_capabilityMenu",
+	"card": "AKWTXG_card",
+	"cardButtons": "AKWTXG_cardButtons",
+	"cardHead": "AKWTXG_cardHead",
+	"cardTitle": "AKWTXG_cardTitle",
+	"cardViewButton": "AKWTXG_cardViewButton",
+	"cardViews": "AKWTXG_cardViews",
+	"chat": "AKWTXG_chat",
+	"chatHead": "AKWTXG_chatHead",
+	"choice": "AKWTXG_choice",
+	"choiceRow": "AKWTXG_choiceRow",
+	"composer": "AKWTXG_composer",
+	"composerRow": "AKWTXG_composerRow",
+	"dialog": "AKWTXG_dialog",
+	"dialogActions": "AKWTXG_dialogActions",
+	"dialogBackdrop": "AKWTXG_dialogBackdrop",
+	"dialogTitle": "AKWTXG_dialogTitle",
+	"drawerBackdrop": "AKWTXG_drawerBackdrop",
+	"drawerOpen": "AKWTXG_drawerOpen",
+	"editBar": "AKWTXG_editBar",
+	"editBox": "AKWTXG_editBox",
+	"edited": "AKWTXG_edited",
+	"editInput": "AKWTXG_editInput",
+	"empty": "AKWTXG_empty",
+	"field": "AKWTXG_field",
+	"fieldInput": "AKWTXG_fieldInput",
+	"fieldLabel": "AKWTXG_fieldLabel",
+	"focused": "AKWTXG_focused",
+	"groupHead": "AKWTXG_groupHead",
+	"groupTitle": "AKWTXG_groupTitle",
+	"guide": "AKWTXG_guide",
+	"hash": "AKWTXG_hash",
+	"iconButton": "AKWTXG_iconButton",
+	"input": "AKWTXG_input",
+	"leadControl": "AKWTXG_leadControl",
+	"leadMenu": "AKWTXG_leadMenu",
+	"leadOption": "AKWTXG_leadOption",
+	"linkButton": "AKWTXG_linkButton",
+	"log": "AKWTXG_log",
+	"member": "AKWTXG_member",
+	"memberActions": "AKWTXG_memberActions",
+	"memberAvatar": "AKWTXG_memberAvatar",
+	"memberFailed": "AKWTXG_memberFailed",
+	"memberModel": "AKWTXG_memberModel",
+	"memberName": "AKWTXG_memberName",
+	"memberRow": "AKWTXG_memberRow",
+	"members": "AKWTXG_members",
+	"membersHidden": "AKWTXG_membersHidden",
+	"memberStatus": "AKWTXG_memberStatus",
+	"memberText": "AKWTXG_memberText",
+	"mentionActive": "AKWTXG_mentionActive",
+	"mentionButton": "AKWTXG_mentionButton",
+	"mentionHint": "AKWTXG_mentionHint",
+	"mentionItem": "AKWTXG_mentionItem",
+	"mentionMeta": "AKWTXG_mentionMeta",
+	"mentionName": "AKWTXG_mentionName",
+	"mentionPopup": "AKWTXG_mentionPopup",
+	"mentionTitle": "AKWTXG_mentionTitle",
+	"message": "AKWTXG_message",
+	"messageBody": "AKWTXG_messageBody",
+	"messageHead": "AKWTXG_messageHead",
+	"mobileButton": "AKWTXG_mobileButton",
+	"notice": "AKWTXG_notice",
+	"offline": "AKWTXG_offline",
+	"ownActions": "AKWTXG_ownActions",
+	"page": "AKWTXG_page",
+	"panelToggle": "AKWTXG_panelToggle",
+	"panelToggleEnd": "AKWTXG_panelToggleEnd",
+	"permActions": "AKWTXG_permActions",
+	"permScope": "AKWTXG_permScope",
+	"permStatus": "AKWTXG_permStatus",
+	"presence": "AKWTXG_presence",
+	"primaryButton": "AKWTXG_primaryButton",
+	"quote": "AKWTXG_quote",
+	"quoteAuthor": "AKWTXG_quoteAuthor",
+	"quoteDeleted": "AKWTXG_quoteDeleted",
+	"replyBar": "AKWTXG_replyBar",
+	"replyBarText": "AKWTXG_replyBarText",
+	"replyButton": "AKWTXG_replyButton",
+	"replyCancel": "AKWTXG_replyCancel",
+	"room": "AKWTXG_room",
+	"roomActive": "AKWTXG_roomActive",
+	"roomInput": "AKWTXG_roomInput",
+	"roomLabel": "AKWTXG_roomLabel",
+	"rooms": "AKWTXG_rooms",
+	"roomsHidden": "AKWTXG_roomsHidden",
+	"secondaryButton": "AKWTXG_secondaryButton",
+	"sendButton": "AKWTXG_sendButton",
+	"sendError": "AKWTXG_sendError",
+	"system": "AKWTXG_system",
+	"tag": "AKWTXG_tag",
+	"taskBoard": "AKWTXG_taskBoard",
+	"taskCard": "AKWTXG_taskCard",
+	"taskDone": "AKWTXG_taskDone",
+	"taskEmpty": "AKWTXG_taskEmpty",
+	"taskLine": "AKWTXG_taskLine",
+	"taskLinks": "AKWTXG_taskLinks",
+	"taskList": "AKWTXG_taskList",
+	"taskMember": "AKWTXG_taskMember",
+	"taskMemberName": "AKWTXG_taskMemberName",
+	"taskMembers": "AKWTXG_taskMembers",
+	"taskMeta": "AKWTXG_taskMeta",
+	"taskOwnerGroup": "AKWTXG_taskOwnerGroup",
+	"taskOwnerName": "AKWTXG_taskOwnerName",
+	"taskRow": "AKWTXG_taskRow",
+	"taskSection": "AKWTXG_taskSection",
+	"taskSectionTitle": "AKWTXG_taskSectionTitle",
+	"taskStatus": "AKWTXG_taskStatus",
+	"taskSub": "AKWTXG_taskSub",
+	"taskTitle": "AKWTXG_taskTitle",
+	"text": "AKWTXG_text",
+	"time": "AKWTXG_time",
+	"working": "AKWTXG_working",
+	"workspace": "AKWTXG_workspace"
 };
 // src/client/Attachments.tsx
 const isImage = (mime) => /^image\/(png|jpeg|gif|webp)$/.test(mime);
@@ -1801,6 +1802,14 @@ function KindTag({ kind, cli, t }) {
 	});
 	return null;
 }
+/** IME candidate confirmation (desktop isComposing, iOS/Android keyCode 229) must not send/select/save. */
+function isImeEnter(event) {
+	return Reflect.get(event.nativeEvent, "isComposing") === true || Reflect.get(event.nativeEvent, "keyCode") === 229;
+}
+/** Touch or narrow screens get the short composer placeholder (the long one wraps beside the send button). */
+function compactComposer() {
+	return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(hover: none), (max-width: 600px)").matches;
+}
 /** The quoted original above a reply; a deleted original shows only a placeholder. */
 function Quote({ quote, t }) {
 	if (quote.deleted === true) return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
@@ -1948,7 +1957,7 @@ function MessageRow({ message, member, t, onConfigure, menuOpen, onAvatar, onClo
 								if (event.key === "Escape") {
 									event.preventDefault();
 									own.onEditCancel();
-								} else if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+								} else if (event.key === "Enter" && !event.shiftKey && !isImeEnter(event)) {
 									event.preventDefault();
 									own.onEditSave();
 								}
@@ -2468,7 +2477,7 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 		}));
 	};
 	const onKeyDown = (event) => {
-		if (draft === "/" && !capabilitiesDismissed && !event.nativeEvent.isComposing) {
+		if (draft === "/" && !capabilitiesDismissed && !isImeEnter(event)) {
 			if (event.key === "Escape") {
 				event.preventDefault();
 				setCapabilitiesDismissed(true);
@@ -2479,7 +2488,7 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 				return;
 			}
 		}
-		if (popupOpen && !event.nativeEvent.isComposing) {
+		if (popupOpen && !isImeEnter(event)) {
 			if (event.key === "ArrowDown" || event.key === "ArrowUp") {
 				event.preventDefault();
 				const step = event.key === "ArrowDown" ? 1 : -1;
@@ -2497,7 +2506,7 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 				return;
 			}
 		}
-		if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+		if (event.key === "Enter" && !event.shiftKey && !isImeEnter(event)) {
 			event.preventDefault();
 			submit();
 		}
@@ -2549,7 +2558,7 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 							setNewRoom(event.target.value);
 						},
 						onKeyDown: (event) => {
-							if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+							if (event.key === "Enter" && !isImeEnter(event)) {
 								event.preventDefault();
 								submitRoom();
 							}
@@ -2819,9 +2828,10 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 										ref: inputRef,
 										className: ChannelsPage_module_default.input,
 										rows: 1,
+										enterKeyHint: "send",
 										value: draft,
 										disabled: state.roomId === void 0 || sending[state.roomId] === true,
-										placeholder: t("placeholder", { room: room?.name ?? "" }),
+										placeholder: t(compactComposer() ? "placeholderShort" : "placeholder", { room: room?.name ?? "" }),
 										role: "combobox",
 										"aria-expanded": popupOpen,
 										"aria-controls": "channel-mention-list",
@@ -2855,6 +2865,18 @@ function ChannelsPage({ useChannels, selectRoom, send, createRoom, listModels, l
 										disabled: state.roomId === void 0 || sending[state.roomId] === true,
 										onClick: openPicker,
 										children: "@"
+									}),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										type: "button",
+										className: ChannelsPage_module_default.sendButton,
+										title: t("sendButton"),
+										"aria-label": t("sendButton"),
+										disabled: state.roomId === void 0 || sending[state.roomId] === true || draft.trim() === "" && (pendingFiles[state.roomId] ?? []).length === 0,
+										onMouseDown: (event) => {
+											event.preventDefault();
+										},
+										onClick: submit,
+										children: t("sendButton")
 									})
 								]
 							})
@@ -3097,6 +3119,7 @@ const zh = {
 	kindClaude: "Claude Code",
 	kindCodex: "Codex",
 	kindGemini: "Gemini",
+	placeholderShort: "发消息到 #{room}",
 	placeholder: "发消息到 #{room}，@成员 让它干活（Enter 发送，Shift+Enter 换行）",
 	loading: "正在连接频道服务…",
 	unavailable: "频道服务未启用：在 collab.yml 中配置服务后，用 --patch collab.yml 启动 DSH。",
@@ -3109,6 +3132,7 @@ const zh = {
 	mentionTitleQuery: "匹配「{query}」的成员",
 	mentionHint: "↑↓ 选择 · Enter / Tab 确认 · Esc 关闭",
 	mentionButton: "@ 一个成员",
+	sendButton: "发送",
 	attachButton: "添加图片或文件",
 	removeAttachment: "移除附件",
 	attachmentsTooLarge: "附件太大：一条消息合计不能超过 {limit}",
@@ -3248,6 +3272,7 @@ const en = {
 	kindClaude: "Claude Code",
 	kindCodex: "Codex",
 	kindGemini: "Gemini",
+	placeholderShort: "Message #{room}",
 	placeholder: "Message #{room}; @ a member to put it to work (Enter sends, Shift+Enter for a new line)",
 	loading: "Connecting to the channel service…",
 	unavailable: "The channel service is off: configure it in collab.yml, then start DSH with --patch collab.yml.",
@@ -3260,6 +3285,7 @@ const en = {
 	mentionTitleQuery: "Members matching \"{query}\"",
 	mentionHint: "↑↓ select · Enter / Tab confirm · Esc close",
 	mentionButton: "Mention a member",
+	sendButton: "Send",
 	attachButton: "Attach images or files",
 	removeAttachment: "Remove attachment",
 	attachmentsTooLarge: "Attachments too large: one message can carry at most {limit} in total",

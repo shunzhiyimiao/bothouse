@@ -3614,13 +3614,14 @@ test('block B: DSH refusing one image of a batch drops only that image and tells
   assert.equal(agent.prompts.length, 1);
   const content = agent.prompts[0].content;
   assert.match(content[0].text, /@Native check/);
-  assert.match(content[0].text, /huge\.png: attachment not delivered \(Image exceeds the configured decoded-pixel limit\.\)/);
-  assert.doesNotMatch(content[0].text, /small\.png: attachment not delivered/);
+  assert.match(content[0].text, /huge\.png: 附件未送达（/);
+  assert.doesNotMatch(content[0].text, /small\.png: 附件未送达/);
   assert.deepEqual(content.slice(1), [{ type: 'image', attachment: { attachmentId: 'small' } }]);
   const note = hub.store.page(1, undefined, 20).find(m => m.author_kind === 'system' && /附件没送到/.test(m.text));
   assert.ok(note, 'channel shows a system note for the dropped attachment');
   assert.match(note.text, /Native/);
-  assert.match(note.text, /huge\.png（Image exceeds the configured decoded-pixel limit\.）/);
+  assert.match(note.text, /huge\.png（图片太大，超过像素上限）/);
+  assert.doesNotMatch(note.text, /exceeds/, 'the channel note is in Chinese, not DSH\'s English message');
   assert.doesNotMatch(note.text, /small\.png/);
   native.turn(agent, ['received']);
   await settle();
@@ -3646,7 +3647,7 @@ test('block B: DSH rejecting an image batch still delivers the text and advances
   await settle();
   const agent = native.sessions.get(native.made[0]);
   assert.equal(agent.prompts.length, 1);
-  assert.match(agent.prompts[0].content[0].text, /a\.png: attachment not delivered \(too many images\)/);
+  assert.match(agent.prompts[0].content[0].text, /a\.png: 附件未送达（/);
   assert.equal(agent.prompts[0].content.length, 1);
   native.turn(agent, ['received']);
   await settle();
@@ -3673,8 +3674,8 @@ test('block B: DSH batch limit keeps the images that fit and notes the rest once
   const agent = native.sessions.get(native.made[0]);
   const content = agent.prompts[0].content;
   assert.deepEqual(content.slice(1), [{ type: 'image', attachment: { attachmentId: 'a' } }]);
-  assert.match(content[0].text, /b\.png: attachment not delivered \(too many images\)/);
-  assert.match(content[0].text, /c\.png: attachment not delivered \(too many images\)/);
+  assert.match(content[0].text, /b\.png: 附件未送达（/);
+  assert.match(content[0].text, /c\.png: 附件未送达（/);
   const notes = hub.store.page(1, undefined, 20).filter(m => m.author_kind === 'system' && /附件没送到/.test(m.text));
   assert.equal(notes.length, 1);
   assert.match(notes[0].text, /b\.png（too many images）；c\.png（too many images）/);
@@ -3924,4 +3925,13 @@ test('CLI member without allow_always: typed 允许所有 goes back to ACP as al
   assert.deepEqual(outcomes, [{ outcome: 'selected', optionId: 'allow-once' }]);
   const state = JSON.parse(hub.store.message(card.id).card).state;
   assert.equal(state, 'allowed', 'card shows what ACP got, not 已允许所有');
+});
+
+test('attachments: undelivered reasons are shown in Chinese by DSH error code, unknown ones stay as-is', async () => {
+  const { undeliveredReasonZh } = await import('./attachments.mjs');
+  assert.equal(undeliveredReasonZh({ reason: 'whatever', code: 'IMAGE_TOO_MANY_PIXELS' }), '图片太大，超过像素上限');
+  assert.equal(undeliveredReasonZh({ reason: 'Image exceeds the configured byte limit.' }), '图片文件太大，超过大小上限');
+  assert.equal(undeliveredReasonZh({ reason: 'Unsupported or malformed image data.', code: 'INVALID_IMAGE' }), '图片格式不支持或已损坏');
+  assert.equal(undeliveredReasonZh({ reason: 'Image exceeds the configured per-side pixel limit.' }), '图片太长或太宽，超过单边像素上限');
+  assert.equal(undeliveredReasonZh({ reason: 'something new' }), 'something new');
 });
