@@ -339,6 +339,7 @@ func runMain() {
 		os.Exit(1)
 	}
 	slog.Info("acquired instance lock", "path", instanceLock.Path())
+	slog.Info("desktop tray", "enabled", trayMode)
 
 	// After an upgrade, bring ~/.bothouse/dsh plugin code up to this version (user files kept).
 	// In the background: when its dependencies changed it runs pnpm install, which must not hold
@@ -787,10 +788,14 @@ func runMain() {
 
 	var restartReq *core.RestartRequest
 	select {
-	case <-sigCh:
+	case sig := <-sigCh:
+		slog.Info("shutdown requested", "source", "system_signal", "signal", sig.String())
 	case <-desktopShutdown:
+		slog.Info("shutdown requested", "source", "tray")
+		defer stopDesktopService()
 	case req := <-core.RestartCh:
 		restartReq = &req
+		slog.Info("shutdown requested", "source", "restart_command", "session", req.SessionKey)
 		slog.Info("restart requested via /restart command", "session", req.SessionKey, "platform", req.Platform)
 	}
 
@@ -1520,6 +1525,7 @@ func runTopLevelCommand(args []string) bool {
 var rootConfigPath string
 
 type rootCLIOptions struct {
+	headless       bool
 	configPath     string
 	force          bool
 	observe        bool
@@ -1535,6 +1541,7 @@ func parseRootCLIOptions(args []string) (rootCLIOptions, error) {
 	fs.SetOutput(os.Stderr)
 	fs.Usage = printUsage
 
+	headless := fs.Bool("headless", false, "run without a desktop tray icon")
 	configPath := fs.String("config", "", "path to config file (default: ./config.toml or ~/.bothouse/config.toml)")
 	force := fs.Bool("force", false, "kill any existing instance with the same config before starting")
 	observe := fs.Bool("observe", false, "observe native terminal Claude Code sessions and forward to Slack")
@@ -1548,6 +1555,7 @@ func parseRootCLIOptions(args []string) (rootCLIOptions, error) {
 	}
 
 	return rootCLIOptions{
+		headless:       *headless,
 		configPath:     *configPath,
 		force:          *force,
 		observe:        *observe,
@@ -1704,6 +1712,7 @@ Usage:
 
 Flags:
   --config <path>    Path to config file (default: ./config.toml or ~/.bothouse/config.toml)
+  --headless         Run without a desktop tray icon
   --force            Kill any existing instance with the same config before starting
   --version          Print version and exit
   --help             Show this help message
