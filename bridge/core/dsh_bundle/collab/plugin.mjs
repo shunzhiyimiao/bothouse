@@ -20,10 +20,11 @@ import { avatarImage, checkAvatar } from './avatars.mjs';
 import { handler as clisHandler } from './clis.mjs';
 import { LeadState } from './lead-state.mjs';
 import { Attachments, INLINE_IMAGE } from './attachments.mjs';
+import { Later, registerLater } from './later.mjs';
 
 export const name = 'conest-collab';
 export const inject = [
-  'webServer', 'connection', 'llm', 'agents', 'agentDefaultModel', 'agentPresets', 'permissionPresets', 'sessionTitle', 'workspaceRegistry',
+  'attachments', 'webServer', 'connection', 'llm', 'agents', 'agentDefaultModel', 'agentPresets', 'permissionPresets', 'sessionTitle', 'workspaceRegistry',
   'sessionPersistence',
 ];
 
@@ -101,7 +102,9 @@ export async function apply(ctx, rawConfig) {
   hub.setMember({ id: OWNER, name: config.ownerName, kind: 'human', online: true });
   const files = new Attachments(join(config.dataDir, 'attachments'));
   const gateway = new CloudWebGateway(hub, { token: config.botToken, logger: ctx.logger, files });
-  const dsh = new DshMembers(hub, { ctx, createUserMessage, createCliMember, workspacePath: config.workspacePath, logger: ctx.logger }, [], { maxRelay: config.maxRelay });
+  const later = new Later(hub, join(config.dataDir, 'collab.sqlite3'), (id, msg) => dsh.nudge(id, msg) || gateway.nudge(id, msg), { start: false });
+  gateway.later = later;
+  const dsh = new DshMembers(hub, { files, later, ctx, createUserMessage, createCliMember, workspacePath: config.workspacePath, logger: ctx.logger }, [], { maxRelay: config.maxRelay });
   const roster = new Roster(hub, dsh, ctx.llm);
   // #139 B: dispatched tasks; a reminder wakes its owner whichever kind of member it is.
   // Started after dsh.recover(): a reminder due during the downtime must not look like a leftover job.
@@ -126,6 +129,7 @@ export async function apply(ctx, rawConfig) {
   // Queue leftover jobs before any route can add new ones, so both share one order.
   dsh.recover();
   tasks.start();
+  later.start();
   if (!config.botToken) ctx.logger.warn(`conest-collab: ${config.botTokenEnv} is unset; cc-connect bots cannot connect`);
 
   const owner = req => ctx.connection.requestRejection(req) === undefined;
@@ -138,6 +142,7 @@ export async function apply(ctx, rawConfig) {
     path: WS_PATH,
     handler: (req, socket, head) => {
       const url = new URL(req.url ?? '/', 'http://collab.invalid');
+      later.origin ??= localOrigin(req);
       if (!gateway.authorized(req, url)) {
         socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
         return;
@@ -146,6 +151,7 @@ export async function apply(ctx, rawConfig) {
     },
   }), 'conest-collab: cloud-web upgrade');
   ctx.effect(() => async () => {
+    later.close();
     tasks.close();
     gateway.closeAll();
     for (const end of streams) end();
@@ -160,6 +166,7 @@ export async function apply(ctx, rawConfig) {
   /** cc-connect ChannelHistory: GET /api/rooms/{id}/messages?before=&limit= (bot token or owner). */
   function historyRoute(req, res) {
     const url = new URL(req.url ?? '/', 'http://collab.invalid');
+    later.origin ??= localOrigin(req);
     const m = /^\/api\/rooms\/(\d+)\/messages$/.exec(url.pathname);
     if (req.method !== 'GET' || m === null) return json(res, 404, { error: 'not found' });
     if (!gateway.authorized(req, url) && !owner(req)) return json(res, 401, { error: 'unauthorized' });
@@ -172,6 +179,9 @@ export async function apply(ctx, rawConfig) {
   async function browserRoute(req, res) {
     const url = new URL(req.url ?? '/', 'http://collab.invalid');
     const path = url.pathname.replace(/\/+$/, '');
+    later.origin ??= localOrigin(req);
+    const scheduled = laterRoute(req, res, url, { hub, gateway, owner, later });
+    if (scheduled !== undefined) return scheduled;
     const routed = tasksRoute(req, res, url, { tasks, gateway, owner });
     if (routed !== undefined) return routed;
     const opened = workspacesRoute(req, res, url, { store, hub, gateway, owner });
@@ -506,6 +516,11 @@ export async function withBody(req, res, fn, parse = true, limit = MAX_BODY) {
   }
 }
 
+/** Loopback origin of the server that accepted req, for the local later command. */
+function localOrigin(req) {
+  const port = req.socket?.localPort;
+  return Number.isInteger(port) ? `http://127.0.0.1:${port}` : undefined;
+}
 function json(res, status, value) { text(res, status, 'application/json; charset=utf-8', JSON.stringify(value)); }
 
 function text(res, status, type, body) {
@@ -527,4 +542,25 @@ function readBody(req, limit = MAX_BODY) {
     req.on('end', () => (size > limit ? reject(new BodyTooLarge()) : resolve(Buffer.concat(chunks).toString('utf8'))));
     req.on('error', reject);
   });
+}
+
+/** Authenticated one-shot scheduling for local and external channel members. */
+export function laterRoute(req, res, url, { hub, gateway, owner, later }) {
+  const path = url.pathname.replace(/\/+$/, '');
+  const laterMatch = /^\/collab\/api\/rooms\/(\d+)\/later$/.exec(path);
+  if (laterMatch && req.method === 'POST') {
+    // Only a (member, room) ticket from later.instructions() registers; owner and the shared bot token do not.
+    const claims = later.verify(req.headers['x-later-ticket']);
+    if (!claims) return json(res, 401, { error: 'unauthorized' });
+    if (claims.room !== Number(laterMatch[1])) return json(res, 403, { error: 'ticket is for another room' });
+    return withBody(req, res, body => {
+      if (body?.member !== undefined && body.member !== claims.member) throw new CollabError('forbidden', 'ticket is for another member');
+      if (body?.room !== undefined && Number(body.room) !== claims.room) throw new CollabError('forbidden', 'ticket is for another room');
+      if (!hub.routable().some(m => m.id === claims.member)) throw new CollabError('member-missing', 'unknown member');
+      const reminder = registerLater(hub.store.db, { ...body, member: claims.member, room: claims.room });
+      later.tick();
+      return { reminder };
+    });
+  }
+  return undefined;
 }

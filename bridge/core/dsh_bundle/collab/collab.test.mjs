@@ -3525,3 +3525,213 @@ test('DSH approval #557: another plugin answering approval/request first does no
   hub.approvals.decide(card.id, 'deny');
   assert.equal(await decided(outcome), 'rejected');
 });
+
+// Block B: regressions for member media and durable one-shot wake routing.
+import { Attachments, attachmentBlocks, nativeAttachmentBlocks, MAX_IMAGE_BYTES } from './attachments.mjs';
+import { Later, registerLater } from './later.mjs';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+test('block B: native and CLI members receive image and file blocks via shared wire policy', async () => {
+  const files = new Attachments(mkdtempSync(join(tmpdir(), 'blockb-media-')));
+  const attachments = files.save([
+    { name: 'photo.png', mime: 'image/png', data: Buffer.from('png').toString('base64') },
+    { name: 'notes.txt', mime: 'text/plain', data: Buffer.from('hello').toString('base64') },
+    { name: 'large.png', mime: 'image/png', data: Buffer.alloc(MAX_IMAGE_BYTES + 1).toString('base64') },
+    { name: 'vector.svg', mime: 'image/svg+xml', data: Buffer.from('<svg/>').toString('base64') },
+  ]);
+  const hub = makeHub();
+  const captured = [];
+  const members = cliMembers(hub, async (...args) => { captured.push(args); return 'received'; });
+  members.rt.files = files;
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC check', attachments });
+  await settle();
+  assert.deepEqual(captured[0][4].attachments.map(b => b.type), ['image', 'resource', 'resource', 'resource']);
+  assert.equal(captured[0][4].attachments[1].resource.blob, Buffer.from('hello').toString('base64'));
+  const native = fakeDsh();
+  const nativeHub = makeHub();
+  const ds = native.attach(nativeHub, [{ id: 'native', name: 'Native' }]);
+  ds.rt.files = files;
+  native.ctx.attachments = {
+    admitEncodedFile: async f => ({ attachmentId: f.name, name: f.name }),
+    admitPromptContent: async parts => parts.map(b => b.type === 'image' ? { type: 'image', attachment: { attachmentId: 'image' } } : b),
+  };
+  nativeHub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@Native check', attachments });
+  await settle();
+  const agent = native.sessions.get(native.made[0]);
+  assert.deepEqual(agent.prompts[0].content.slice(-4).map(b => b.type), ['image', 'file', 'file', 'file']);
+  native.turn(agent, ['received']);
+  await settle();
+  await ds.close();
+});
+
+test('block B: DSH rejecting an image batch still delivers the text and advances', async () => {
+  const files = new Attachments(mkdtempSync(join(tmpdir(), 'blockb-reject-')));
+  const attachments = files.save([{ name: 'a.png', mime: 'image/png', data: Buffer.from('png').toString('base64') }]);
+  const native = fakeDsh();
+  const hub = makeHub();
+  const ds = native.attach(hub, [{ id: 'native', name: 'Native' }]);
+  ds.rt.files = files;
+  native.ctx.attachments = {
+    admitEncodedFile: async f => ({ attachmentId: f.name, name: f.name }),
+    admitPromptContent: async () => { throw new Error('too many images'); },
+  };
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@Native check', attachments });
+  await settle();
+  const agent = native.sessions.get(native.made[0]);
+  assert.equal(agent.prompts.length, 1);
+  assert.match(agent.prompts[0].content[0].text, /a\.png: attachment not delivered \(too many images\)/);
+  assert.equal(agent.prompts[0].content.length, 1);
+  native.turn(agent, ['received']);
+  await settle();
+  assert.ok(hub.store.page(1, undefined, 20).some(m => m.text === 'received'));
+  await ds.close();
+});
+
+test('block B: later survives restart, keeps offline wakes and delivers once to each member kind', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'blockb-later-')), 'collab.sqlite3');
+  let store = new Store(path); store.ensureRoom(1, 'general');
+  let hub = makeHubFrom(store);
+  let now = 1000;
+  let later = new Later(hub, path, () => false, { now: () => now, start: false });
+  for (const member of ['native', 'cli', 'bridge']) registerLater(store.db, { member, room: 1, delay: '2s', title: 'check', todo: 'read build log' }, now);
+  assert.throws(() => registerLater(store.db, { member: 'cli', room: 1, delay: '0m', title: 'check', todo: 'log' }), /later requires/);
+  later.tick();
+  assert.equal(store.page(1, undefined, 20).length, 3, 'registration visible before wake');
+  later.close(); store.close();
+  store = new Store(path); hub = makeHubFrom(store);
+  const received = [];
+  let online = false;
+  now = 4000;
+  later = new Later(hub, path, (id, message) => { if (!online) return false; received.push([id, message]); return true; }, { now: () => now, start: false });
+  later.tick();
+  const pending = store.db.prepare('SELECT message_id FROM member_later').all();
+  assert.equal(received.length, 0);
+  online = true; later.tick(); later.tick();
+  assert.deepEqual(received.map(([id]) => id), ['native', 'cli', 'bridge']);
+  assert.deepEqual(received.map(([, m]) => m.id), pending.map(r => r.message_id));
+  assert.ok(received.every(([, m]) => m.room_id === 1 && m.text.includes('read build log')));
+  assert.equal(store.page(1, undefined, 20).length, 6);
+  later.close(); store.close();
+});
+
+import { CliMember } from './cli-member.mjs';
+import { laterRoute } from './plugin.mjs';
+import { Readable } from 'node:stream';
+import { spawn } from 'node:child_process';
+import { createServer } from 'node:http';
+import { statSync } from 'node:fs';
+
+test('block B: ACP prompt actually includes image/resource blocks', async () => {
+  const member = new CliMember({ cli: 'claude', cwd: '/tmp' });
+  member._session = async () => ({ sessionId: 'test', first: false });
+  let prompt;
+  member.conn = { prompt: async value => { prompt = value; member.buffers.set('test', 'done'); } };
+  const media = [{ type: 'image', mimeType: 'image/png', data: 'cG5n' }, { type: 'resource', resource: { uri: 'attachment:///a.txt', mimeType: 'text/plain', blob: 'aGk=' } }];
+  assert.equal(await member.ask('read', 'room', undefined, undefined, { attachments: media }), 'done');
+  assert.deepEqual(prompt.prompt, [{ type: 'text', text: 'read' }, ...media]);
+});
+
+test('block B: local later command registers through the ticketed HTTP route, not the database', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'blockb-command-'));
+  const path = join(dir, 'collab.sqlite3');
+  const store = new Store(path); store.ensureRoom(1, 'general');
+  const hub = makeHubFrom(store); hub.setMember({ id: 'cli', name: 'CLI', kind: 'dsh', online: true });
+  const woke = [];
+  let now = Date.now();
+  const later = new Later(hub, path, (id, m) => { woke.push([id, m]); return true; }, { now: () => now, start: false });
+  assert.equal(statSync(join(dir, 'later.key')).mode & 0o777, 0o600, 'key file is private');
+  const server = createServer((req, res) => laterRoute(req, res, new URL(req.url, 'http://x'), { hub, later, owner: () => false, gateway: { authorized: () => false } }) ?? (res.headersSent || (res.writeHead(404), res.end('{}'))));
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  try {
+  later.origin = `http://127.0.0.1:${server.address().port}`;
+  assert.match(later.instructions('cli', 1), new RegExp(later.ticket('cli', 1).replace(/[.]/g, '\\.')));
+  const run = args => new Promise(resolve => { const child = spawn(process.execPath, [new URL('./later.mjs', import.meta.url).pathname, ...args]); let out = ''; child.stdout.on('data', d => { out += d; }); child.on('close', status => resolve({ status, out })); });
+  assert.notEqual((await run([later.origin, 'forged.ticket', '1s', 'check', 'read results'])).status, 0);
+  assert.notEqual((await run([later.origin, later.ticket('cli', 1).slice(0, -2) + 'xx', '1s', 'check', 'read results'])).status, 0, 'tampered ticket rejected');
+  const result = await run([later.origin, later.ticket('cli', 1), '1s', 'check', 'read results']);
+  assert.equal(result.status, 0);
+  const { reminder } = JSON.parse(result.out);
+  assert.equal(reminder.member_id, 'cli'); assert.equal(reminder.room_id, 1);
+  now = reminder.due_at; later.tick();
+  assert.equal(woke.length, 1); assert.equal(woke[0][0], 'cli'); assert.equal(woke[0][1].room_id, 1);
+  assert.match(woke[0][1].text, /read results/);
+  } finally { server.close(); later.close(); store.close(); }
+});
+
+test('block B: later API only accepts a ticket bound to the same member and room', async () => {
+  const hub = makeHub(); hub.store.ensureRoom(2, 'other');
+  for (const id of ['a', 'b']) hub.setMember({ id, name: id, kind: 'dsh', online: true });
+  let now = 1000;
+  const woke = [];
+  const later = new Later(hub, ':memory:', (id, m) => { woke.push([id, m.room_id]); return true; }, { now: () => now, start: false });
+  const request = async (ticket, body, room = 1) => {
+    const req = Readable.from([Buffer.from(JSON.stringify(body))]); req.method = 'POST';
+    req.headers = ticket === undefined ? {} : { 'x-later-ticket': ticket };
+    const res = { writeHead(status) { this.status = status; }, end(data) { this.body = JSON.parse(data); } };
+    // Owner session and shared bot token are both present: neither may register on its own.
+    await laterRoute(req, res, new URL(`http://localhost/collab/api/rooms/${room}/later`), { hub, later, owner: () => true, gateway: { authorized: () => true } });
+    return res;
+  };
+  const body = { delay: '1s', title: 'check', todo: 'read log' };
+  const ticketA = later.ticket('a', 1);
+  assert.equal((await request(undefined, { ...body, member: 'a' })).status, 401, 'no ticket');
+  assert.equal((await request(ticketA.slice(0, -2) + 'xx', body)).status, 401, 'tampered ticket');
+  assert.equal((await request(ticketA, { ...body, member: 'b' })).status, 403, "A's ticket cannot register B");
+  assert.equal((await request(ticketA, body, 2)).status, 403, "A's ticket cannot register another room");
+  assert.equal((await request(ticketA, { ...body, room: 2 })).status, 403, 'body room must match the ticket');
+  assert.equal((await request(later.ticket('missing', 1), body)).status, 404);
+  const ok = await request(ticketA, body);
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.reminder.member_id, 'a'); assert.equal(ok.body.reminder.room_id, 1);
+  now = ok.body.reminder.due_at; later.tick();
+  assert.deepEqual(woke, [['a', 1]], 'only A wakes, in the original room');
+  later.close();
+});
+
+test('block B: due follow-up enters native, CLI and cloud-web member routing in the original room', async () => {
+  const hub = makeHub();
+  const native = fakeDsh();
+  const members = native.attach(hub, [{ id: 'native', name: 'Native' }, { id: 'cli', name: 'CLI', cli: 'claude' }]);
+  const cliPrompts = [];
+  members.rt.createCliMember = () => ({ ask: async text => { cliPrompts.push(text); return 'checked'; }, close() {} });
+  const gateway = new CloudWebGateway(hub, { token: 'secret', logger: quiet });
+  const ws = connect(gateway, 'token=secret&bot=bridge&name=Bridge');
+  let now = 1000;
+  const later = new Later(hub, ':memory:', (id, msg) => members.nudge(id, msg) || gateway.nudge(id, msg), { now: () => now, start: false });
+  for (const member of ['native', 'cli', 'bridge']) registerLater(hub.store.db, { member, room: 1, delay: '1s', title: 'results', todo: 'read log now' }, now);
+  now = 3000; later.tick(); later.tick(); await settle();
+  assert.equal(cliPrompts.length, 1); assert.match(cliPrompts[0], /read log now/);
+  const agent = native.sessions.get(native.made[0]);
+  assert.equal(agent.prompts.length, 1); assert.match(agent.prompts[0].content[0].text, /read log now/);
+  const frames = ws.of('message').filter(f => f.content.includes('read log now'));
+  assert.equal(frames.length, 1); assert.equal(frames[0].chat_id, 'room-1'); assert.equal(frames[0].mentioned, true);
+  native.turn(agent, ['checked']); await settle();
+  later.close(); gateway.closeAll(); await members.close();
+});
+
+import { writeFileSync as writeKeyFile, readFileSync as readKeyFile } from 'node:fs';
+test('later: empty or short key file is regenerated to 32 bytes; old tickets stop verifying', () => {
+  for (const bad of ['', 'abcd']) {
+    const dir = mkdtempSync(join(tmpdir(), 'later-key-'));
+    const path = join(dir, 'collab.sqlite3'); const keyFile = join(dir, 'later.key');
+    const store = new Store(path); store.ensureRoom(1, 'general');
+    const hub = makeHubFrom(store);
+    const first = new Later(hub, path, () => false, { start: false });
+    const oldTicket = first.ticket('cli', 1);
+    assert.deepEqual(first.verify(oldTicket), { member: 'cli', room: 1 });
+    writeKeyFile(keyFile, bad);
+    const second = new Later(hub, path, () => false, { start: false });
+    assert.equal(second.key.length, 32, `regenerated from ${JSON.stringify(bad)}`);
+    assert.equal(Buffer.from(readKeyFile(keyFile, 'utf8').trim(), 'hex').length, 32);
+    assert.equal(statSync(keyFile).mode & 0o777, 0o600);
+    assert.equal(second.verify(oldTicket), undefined, 'old ticket no longer verifies');
+    const forged = `${oldTicket.split('.')[0]}.${createHmacForTest(Buffer.alloc(0), oldTicket.split('.')[0])}`;
+    assert.equal(second.verify(forged), undefined, 'empty-key forgery rejected');
+    assert.deepEqual(second.verify(second.ticket('cli', 1)), { member: 'cli', room: 1 }, 'new ticket verifies');
+    assert.deepEqual(new Later(hub, path, () => false, { start: false }).verify(second.ticket('cli', 1)), { member: 'cli', room: 1 }, 'key persists');
+  }
+});
+import { createHmac as createHmacTest } from 'node:crypto';
+function createHmacForTest(key, payload) { return createHmacTest('sha256', key).update(payload).digest('base64url'); }
