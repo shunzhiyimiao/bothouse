@@ -17713,7 +17713,7 @@ func (e *Engine) cmdBind(p Platform, msg *Message, args []string) {
 	}
 
 	if len(args) == 0 {
-		e.cmdBindStatus(p, msg.ReplyCtx, chatID)
+		e.cmdBindStatus(p, msg.ReplyCtx, p.Name(), chatID)
 		return
 	}
 
@@ -17774,11 +17774,15 @@ func (e *Engine) cmdBind(p Platform, msg *Message, args []string) {
 	e.relayManager.AddToBind(p.Name(), chatID, otherProject)
 
 	// Get all bound projects for status message
-	binding := e.relayManager.GetBinding(chatID)
+	// Same view as a bare /bind: manual binding plus the wizard team (relay_team_bind.go).
+	binding := e.relayManager.EffectiveBinding(p.Name(), chatID)
 	var boundProjects []string
-	for proj := range binding.Bots {
-		boundProjects = append(boundProjects, proj)
+	if binding != nil {
+		for proj := range binding.Bots {
+			boundProjects = append(boundProjects, proj)
+		}
 	}
+	sort.Strings(boundProjects)
 
 	reply := fmt.Sprintf(e.i18n.T(MsgRelayBindSuccess), strings.Join(boundProjects, " ↔ "), otherProject, otherProject)
 
@@ -17791,8 +17795,8 @@ func (e *Engine) cmdBind(p Platform, msg *Message, args []string) {
 	e.reply(p, msg.ReplyCtx, reply)
 }
 
-func (e *Engine) cmdBindStatus(p Platform, replyCtx any, chatID string) {
-	binding := e.relayManager.GetBinding(chatID)
+func (e *Engine) cmdBindStatus(p Platform, replyCtx any, platform, chatID string) {
+	binding := e.relayManager.EffectiveBinding(platform, chatID)
 	if binding == nil {
 		e.reply(p, replyCtx, e.i18n.T(MsgRelayNoBinding))
 		return
