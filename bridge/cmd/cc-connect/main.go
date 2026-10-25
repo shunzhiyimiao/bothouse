@@ -658,6 +658,7 @@ func runMain() {
 		mgmtSrv.SetSaveProviderRefs(config.SaveProviderRefs)
 		mgmtSrv.SetConfigFilePath(configPath)
 		mgmtSrv.SetGetGlobalSettings(config.GetGlobalSettings)
+		wireAutostart(mgmtSrv)
 		mgmtSrv.SetSaveGlobalSettings(func(updates map[string]any) error {
 			u := config.GlobalSettingsUpdate{}
 			if v, ok := updates["language"].(string); ok {
