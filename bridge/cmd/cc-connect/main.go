@@ -402,6 +402,11 @@ func runMain() {
 			cfg = newCfg
 		}
 	}
+	// Roles the migration could not give a mode (dotted/inline options, agent
+	// types with no default mode): say once in the log they may still ask.
+	if _, err := config.HintRolesWithoutKnownMode(cfg.DataDir, cfg); err != nil {
+		slog.Warn("upgrade: permission-mode hint not recorded, it will repeat next start", "error", err)
+	}
 
 	// DSH roles set up before the image size limit was written get it in their overlay now (an upgrade restarts here).
 	for _, proj := range cfg.Projects {
