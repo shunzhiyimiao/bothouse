@@ -6,7 +6,7 @@ import { Hub } from './hub.mjs';
 import { forDisplay, forMember, mentions, nameCalled } from './mentions.mjs';
 import { CloudWebGateway, CAPABILITIES, progressCard, PROGRESS_PREFIX, roomKey } from './cloudweb.mjs';
 import { DshMembers, finalText, describeReason, friendlyFailure, memberStatus } from './dsh-member.mjs';
-import { resolveConfig } from './plugin.mjs';
+import { resolveConfig, installApprovalAnswerer } from './plugin.mjs';
 import { LeadState } from './lead-state.mjs';
 import { Roster } from './roster.mjs';
 import { promptText, teamModeRules, TurnProgress } from './dsh-member.mjs';
@@ -306,6 +306,8 @@ test('progress card carries a brief view: tool name and outcome per step', () =>
  */
 function fakeDsh() {
   const sessions = new Map();
+  const unloaded = new Set();
+  const deleted = new Set();
   const made = [];
   let ids = 0;
   let members;
@@ -324,21 +326,33 @@ function fakeDsh() {
   const ctx = {
     agentDefaultModel: { currentSelection: () => ({ provider: 'deepseek', model: 'deepseek-v4' }) },
     agents: {
-      get: id => sessions.get(id),
+      get: id => (unloaded.has(id) ? undefined : sessions.get(id)),
       created: [], resumes: 0, active: 0, maxActive: 0,
       async create(options) { const agent = agentFor(options.sessionId); made.push(options.sessionId); this.created.push(options); await options.setup?.({ on() {} }); return { agent }; },
-      async resume({ resumeSessionId }) {
+      resumedTools: [],
+      async resume({ resumeSessionId, setup }) {
         this.resumes++; this.active++; this.maxActive = Math.max(this.maxActive, this.active);
         await tick();
         this.active--;
+        if (deleted.has(resumeSessionId)) throw new Error(`session ${resumeSessionId} not found`);
+        unloaded.delete(resumeSessionId);
+        // Like DSH: a resumed Agent starts with only the built-in tool; its setup adds the rest.
+        const resumedCtx = { on() {}, tools: ['working_directory'] };
+        await setup?.(resumedCtx);
+        this.resumedTools.push(resumedCtx.tools);
         return { agent: sessions.get(resumeSessionId) ?? agentFor(resumeSessionId) };
       },
     },
-    agentPresets: { released: 0, async resolve() { return { id: 'default' }; }, async acquireScope() { const p = this; return { async [Symbol.asyncDispose]() { p.released++; } }; }, async mount() {} },
-    permissionPresets: { set() {} },
+    agentPresets: { released: 0, async resolve() { return { id: 'default' }; }, async acquireScope() { const p = this; return { async [Symbol.asyncDispose]() { p.released++; } }; }, async mount(agentCtx) { agentCtx.tools?.push('bash', 'read', 'edit'); } },
+    permissionPresets: { sets: [], set(session, preset) { this.sets.push([session.id, preset]); } },
     sessionTitle: { renamed: [], rename(s, t) { this.renamed.push(t); } },
-    workspaceRegistry: { async create(path) { return { path, async attachSession() {} }; } },
+    workspaceRegistry: { archivedSessionIds: [], async create(path) { return { path, async attachSession() {} }; } },
+    sessionPersistence: { async stat(id) { return deleted.has(id) ? undefined : { header: { id } }; } },
   };
+  /** A process restart: every Session is persisted but none is loaded. */
+  const restart = () => { for (const id of sessions.keys()) unloaded.add(id); };
+  /** The user deletes a Session: it is unloaded and gone from persistence. */
+  const remove = (id) => { unloaded.add(id); deleted.add(id); };
   const emit = (agent, type, data) => {
     const event = { type, data, seq: agent.session.events.length + 1 };
     agent.session.events.push(event);
@@ -362,7 +376,7 @@ function fakeDsh() {
     members = new DshMembers(hub, { ctx, createUserMessage, workspacePath: '/w', logger: quiet }, list, options);
     return members;
   };
-  return { ctx, sessions, made, emit, turn, attach };
+  return { ctx, sessions, made, emit, turn, attach, restart, remove };
 }
 
 const settle = async () => { for (let i = 0; i < 8; i++) await tick(); };
@@ -399,6 +413,146 @@ test('DSH member: @ admits one prompt, its turn posts the reply, duplicates neve
   assert.equal(dsh.made.length, 1, 'the bound Session is reused');
   assert.equal(agent.prompts.length, 2);
   assert.doesNotMatch(agent.prompts[1].content[0].text, /先说一句/, 'only unseen messages are sent');
+});
+
+test('DSH member: a new Session is held by the plugin, out of the DSH conversation list', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 你好' });
+  await settle();
+  assert.equal(dsh.ctx.agents.created.length, 1);
+  // DSH's list hides origin "subagent" Sessions (dsh-client-ui-workspace sessionVisible).
+  assert.equal(dsh.ctx.agents.created[0].meta.origin, 'subagent');
+});
+
+/** Bind ds in room 1 with one answered turn; returns the bound agent. */
+async function boundOnce(hub, dsh) {
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 第一次' });
+  await settle();
+  const agent = dsh.sessions.get(dsh.made[0]);
+  dsh.turn(agent, ['第一次的回答']);
+  await settle();
+  return agent;
+}
+
+/** @ ds again and answer the turn; returns the agent that got the prompt. */
+async function askAgain(hub, dsh, text) {
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text });
+  await settle();
+  const agent = dsh.sessions.get(hub.store.binding('ds', 1).session_id);
+  dsh.turn(agent, [`回答：${text}`]);
+  await settle();
+  return agent;
+}
+
+for (const [label, lose] of [
+  ['archived', (dsh, id) => dsh.ctx.workspaceRegistry.archivedSessionIds.push(id)],
+  ['deleted', (dsh, id) => dsh.remove(id)],
+]) {
+  test(`DSH member: a bound Session that was ${label} is replaced by a new hidden one and the @ is answered`, async () => {
+    const hub = makeHub();
+    const dsh = fakeDsh();
+    dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+    const old = await boundOnce(hub, dsh);
+    lose(dsh, old.session.id);
+    const agent = await askAgain(hub, dsh, '@DeepSeek 第二次');
+    assert.notEqual(agent.session.id, old.session.id, 'a new Session is bound');
+    assert.equal(old.prompts.length, 1, 'nothing goes to the lost Session');
+    assert.equal(dsh.ctx.agents.created.at(-1).meta.origin, 'subagent');
+    assert.equal(hub.store.page(1, undefined, 1)[0].text, '回答：@DeepSeek 第二次');
+    assert.equal(hub.store.openJobs().length, 0);
+    assert.ok(!hub.store.page(1, undefined, 20).some(m => m.author_kind === 'system'), 'no failure card');
+  });
+}
+
+test('DSH member: a resume error on a Session that is still there does not rebind it', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const old = await boundOnce(hub, dsh);
+  dsh.restart();
+  const resume = dsh.ctx.agents.resume;
+  dsh.ctx.agents.resume = async () => { throw new Error('corrupt log'); };
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 第二次' });
+  await settle();
+  dsh.ctx.agents.resume = resume;
+  assert.equal(hub.store.binding('ds', 1).session_id, old.session.id, 'the binding keeps the old Session');
+  assert.equal(dsh.ctx.agents.created.length, 1, 'no new Session');
+  assert.ok(hub.store.page(1, undefined, 20).some(m => m.author_kind === 'system'), 'the failure is shown');
+});
+
+test('DSH member: after a restart the resumed Session gets its agent preset tools and permission preset', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek', permissionPreset: 'danger-full-access' }]);
+  const old = await boundOnce(hub, dsh);
+  dsh.restart();
+  dsh.ctx.permissionPresets.sets.length = 0;
+  const agent = await askAgain(hub, dsh, '@DeepSeek 重启后 fa');
+  assert.equal(agent, old, 'the same Session answers');
+  assert.ok(dsh.ctx.agents.resumedTools.at(-1).includes('bash'), 'the agent preset is mounted on resume');
+  assert.deepEqual(dsh.ctx.permissionPresets.sets, [[old.session.id, 'danger-full-access']], 'the permission preset is applied on resume');
+});
+
+test('DSH member: the request hook is installed once per Agent, after create and after resume, however often it is @-ed', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const setups = [];
+  const setup = members.setup.bind(members);
+  members.setup = (agentCtx, member, agent) => { setups.push(member.id); return setup(agentCtx, member, agent); };
+  const created = await boundOnce(hub, dsh);
+  await askAgain(hub, dsh, '@DeepSeek 第二次');
+  assert.equal(setups.length, 1, 'created: hooked once');
+  // Like DSH, a resume after a restart hands back a new Agent object.
+  dsh.restart();
+  dsh.sessions.delete(created.session.id);
+  const resumed = await askAgain(hub, dsh, '@DeepSeek 重启后一次');
+  await askAgain(hub, dsh, '@DeepSeek 重启后两次');
+  assert.notEqual(resumed, created);
+  assert.equal(setups.length, 2, 'resumed: hooked once more, not on every @');
+});
+
+test('DSH member: after a restart a bound hidden Session is resumed, and one deleted meanwhile is replaced', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const old = await boundOnce(hub, dsh);
+  dsh.restart();
+  const resumes = dsh.ctx.agents.resumes;
+  const agent = await askAgain(hub, dsh, '@DeepSeek 重启后');
+  assert.equal(agent, old, 'the same Session answers');
+  assert.equal(dsh.ctx.agents.resumes, resumes + 1);
+  assert.equal(dsh.ctx.agents.created.length, 1);
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '回答：@DeepSeek 重启后');
+
+  dsh.restart();
+  dsh.remove(old.session.id);
+  const fresh = await askAgain(hub, dsh, '@DeepSeek 删了以后');
+  assert.notEqual(fresh.session.id, old.session.id);
+  assert.equal(dsh.ctx.agents.created.at(-1).meta.origin, 'subagent');
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '回答：@DeepSeek 删了以后');
+});
+
+test('DSH member: /new gives the addressed member a new hidden Session that reads on from /new', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }, { id: 'qw', name: 'Qwen' }]);
+  const old = await boundOnce(hub, dsh);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '旧话题' });
+  const { message: cmd } = hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek /new' });
+  await settle();
+  const fresh = hub.store.binding('ds', 1);
+  assert.notEqual(fresh.session_id, old.session.id, '/new rebinds');
+  assert.equal(dsh.ctx.agents.created.at(-1).meta.origin, 'subagent');
+  assert.equal(fresh.context_cursor, cmd.id, 'the new Session starts after /new');
+  assert.equal(old.prompts.length, 1, '/new is not sent to the model');
+  assert.equal(hub.store.binding('qw', 1), undefined, 'a member not addressed is left alone');
+  assert.equal(hub.store.page(1, undefined, 1)[0].text, '✅ DeepSeek 的新会话已创建');
+  const agent = await askAgain(hub, dsh, '@DeepSeek 新话题');
+  assert.equal(agent.session.id, fresh.session_id);
+  assert.doesNotMatch(agent.prompts[0].content[0].text, /旧话题/);
 });
 
 test('DSH member: a turn started from the DSH Web UI is never posted to the channel', async () => {
@@ -3075,6 +3229,54 @@ test('CLI member: the placeholder binding becomes the real ACP sessionId, and a 
   assert.equal(hub2.store.page(1, undefined, 20).filter(m => m.author === 'system' && /新会话/.test(m.text)).length, 0);
 });
 
+test('CLI member: /new drops the stored ACP session, so the next turn does not resume it', async () => {
+  const hub = makeHub();
+  const asks = [];
+  cliMembers(hub, async (_text, _room, _onText, _onTool, opts) => {
+    asks.push(opts.resumeId);
+    opts.onSession({ sessionId: `acp-${asks.length}`, lost: false });
+    return '好';
+  });
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 第一轮' });
+  await settle();
+  assert.equal(hub.store.binding('cc', 1).session_id, 'acp-1');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC /new' });
+  await settle();
+  assert.equal(hub.store.binding('cc', 1).session_id, 'cli:claude:cc:1', '/new points the binding back at the placeholder');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 新一轮' });
+  await settle();
+  assert.deepEqual(asks, [undefined, undefined], 'the turn after /new has no resumeId');
+});
+
+test('CLI member: /new also drops the ACP id saved from an exited process, so the next turn does not load it', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const asks = [];
+  // Like CliAgent.ask: an empty resumeId falls back to the id saved when the process exited.
+  const agent = {
+    saved: new Map(),
+    async ask(_text, room, _onText, _onTool, opts) {
+      const prevId = opts.resumeId || this.saved.get(room);
+      this.saved.delete(room);
+      asks.push(prevId);
+      opts.onSession({ sessionId: `acp-${asks.length}`, lost: false });
+      return '好';
+    },
+    close() {},
+  };
+  new DshMembers(hub, { ctx: dsh.ctx, createUserMessage: m => m, createCliMember: () => agent, workspacePath: '/w', logger: quiet },
+    [{ id: 'cc', name: 'CC', cli: 'claude' }, { id: 'ds', name: 'DeepSeek' }]);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 第一轮' });
+  await settle();
+  agent.saved.set('1', 'acp-old');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC /new' });
+  await settle();
+  assert.equal(agent.saved.has('1'), false, '/new deletes the saved ACP id for the room');
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@CC 新一轮' });
+  await settle();
+  assert.deepEqual(asks, [undefined, undefined], 'the turn after /new does not resume the saved id');
+});
+
 test('CLI member: a session that cannot be resumed is announced in the channel', async () => {
   const hub = makeHub();
   hub.store.bind('cc', 1, 'acp-old');
@@ -3088,4 +3290,238 @@ test('CLI member: a session that cannot be resumed is announced in the channel',
   assert.equal(hub.store.binding('cc', 1).session_id, 'acp-new');
   const notes = hub.store.page(1, undefined, 20).filter(m => m.author === 'system' && /这轮起是新会话/.test(m.text));
   assert.equal(notes.length, 1, 'one system message says the context was lost');
+});
+
+// #557: approvals of a DSH member's hidden Session show as permission cards in the channel.
+/**
+ * One tool call that needs approval in `agent`'s open turn, the way DSH asks:
+ * tools pipeline → ApprovalService.request → (policy) → approval/request waterfall,
+ * here with the collab answerer as the only listener before the fail-closed end.
+ * Policy per permission preset: Default and Auto review ask; Full access never asks.
+ */
+const PRESET_POLICY = { default: 'ask', auto: 'ask', 'full-access': 'never' };
+function askTool(dsh, members, agent, { preset = 'default', command = 'rm -rf build', signal, displayReason } = {}) {
+  const callId = `call-${agent.session.events.length}`;
+  dsh.emit(agent, 'tool/call', { turn: agent.turns, callId, name: 'bash', arguments: JSON.stringify({ command }) });
+  const ran = [];
+  const runTool = (outcome) => {
+    if (outcome === 'allowed-once') ran.push(command);
+    dsh.emit(agent, 'tool/result', { turn: agent.turns, message: { toolCallId: callId, isError: outcome !== 'allowed-once' } });
+    return outcome;
+  };
+  if (PRESET_POLICY[preset] === 'never') return { ran, outcome: Promise.resolve(runTool('rejected')) };
+  let fellThrough = false;
+  const outcome = members.onApprovalRequest(
+    { agent, toolName: 'bash', callId, reason: 'command needs to run outside the sandbox', displayReason, signal },
+    () => { fellThrough = true; return Promise.resolve('unavailable'); },
+  ).then(runTool);
+  return { ran, outcome, fellThrough: () => fellThrough };
+}
+/**
+ * Waits for a card's outcome, failing instead of hanging when no decision ever
+ * comes (a lost signal, allowAll or expiry would otherwise leave the test pending).
+ */
+function decided(outcome, ms = 2000) {
+  let timer;
+  const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`no approval outcome within ${ms} ms`)), ms); });
+  return Promise.race([outcome, timeout]).finally(() => clearTimeout(timer));
+}
+
+const cardsIn = (hub, room) => hub.store.page(room, undefined, 50).filter(m => m.card !== null && JSON.parse(m.card).kind === 'permission');
+const cardState = (hub, id) => JSON.parse(hub.store.message(id).card).state;
+
+/** @ the member in `room`, open the turn that takes the input, and return its agent. */
+async function openTurn(hub, dsh, room, text = '@DeepSeek 清理一下') {
+  hub.post(room, { authorKind: 'user', author: 'owner', name: '我', text });
+  await settle();
+  const agent = dsh.sessions.get(hub.store.binding('ds', room).session_id);
+  dsh.turn(agent, [], null);
+  return agent;
+}
+
+test('DSH approval #557: a localized displayReason shows as text, not [object Object]', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const agent = await openTurn(hub, dsh, 1);
+  askTool(dsh, members, agent, { displayReason: { en: 'needs network access' } });
+  await settle();
+  const [card] = cardsIn(hub, 1);
+  assert.match(card.text, /needs network access/);
+  assert.doesNotMatch(card.text, /object Object/);
+});
+
+test('DSH approval #557: the card shows in the room that @-ed the member; 允许 lets the tool run and the turn reply', async () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(2, 'other');
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const agent = await openTurn(hub, dsh, 2);
+  const { ran, outcome } = askTool(dsh, members, agent);
+  await settle();
+  assert.equal(cardsIn(hub, 1).length, 0, 'no card in a room that did not ask');
+  const [card] = cardsIn(hub, 2);
+  assert.ok(card, 'the card is in the room of the job');
+  assert.equal(card.author, 'ds');
+  assert.match(card.text, /权限请求\*\* bash/);
+  assert.match(card.text, /rm -rf build/);
+  assert.deepEqual(JSON.parse(card.card).actions.map(a => a.decision), ['allow', 'deny', 'allow_all']);
+
+  hub.approvals.decide(card.id, 'allow');
+  assert.equal(await decided(outcome), 'allowed-once');
+  assert.deepEqual(ran, ['rm -rf build']);
+  assert.equal(cardState(hub, card.id), 'allowed');
+  dsh.emit(agent, 'assistant/message', { message: { content: [{ type: 'text', text: '清理完了' }] } });
+  dsh.emit(agent, 'turn/end', { turn: agent.turns, reason: { kind: 'completed' } });
+  await settle();
+  assert.equal(hub.store.page(2, undefined, 1)[0].text, '清理完了');
+  assert.throws(() => hub.approvals.decide(card.id, 'deny'), /已经处理/);
+});
+
+test('DSH approval #557: 拒绝 rejects the call and the tool does not run', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const agent = await openTurn(hub, dsh, 1);
+  const { ran, outcome } = askTool(dsh, members, agent);
+  await settle();
+  const [card] = cardsIn(hub, 1);
+  hub.approvals.decide(card.id, 'deny');
+  assert.equal(await decided(outcome), 'rejected');
+  assert.deepEqual(ran, []);
+  assert.equal(cardState(hub, card.id), 'denied');
+});
+
+test('DSH approval #557: two rooms @ the same member, each card shows and is decided in its own room', async () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(2, 'other');
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const a1 = await openTurn(hub, dsh, 1, '@DeepSeek 一号');
+  const a2 = await openTurn(hub, dsh, 2, '@DeepSeek 二号');
+  assert.notEqual(a1.session.id, a2.session.id);
+  const t1 = askTool(dsh, members, a1, { command: 'make one' });
+  const t2 = askTool(dsh, members, a2, { command: 'make two' });
+  await settle();
+  const [c1] = cardsIn(hub, 1);
+  const [c2] = cardsIn(hub, 2);
+  assert.equal(cardsIn(hub, 1).length, 1);
+  assert.equal(cardsIn(hub, 2).length, 1);
+  assert.match(c1.text, /make one/);
+  assert.match(c2.text, /make two/);
+  hub.approvals.decide(c2.id, 'deny');
+  assert.equal(await decided(t2.outcome), 'rejected');
+  assert.equal(cardState(hub, c1.id), 'pending', 'the other room is untouched');
+  hub.approvals.decide(c1.id, 'allow');
+  assert.equal(await decided(t1.outcome), 'allowed-once');
+  assert.deepEqual([t1.ran, t2.ran], [['make one'], []]);
+});
+
+test('DSH approval #557: an owner text reply decides the card and starts no new ask; 允许所有 covers that Session only', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: "ds", name: "DeepSeek" }]);
+  const agent = await openTurn(hub, dsh, 1);
+  const first = askTool(dsh, members, agent);
+  await settle();
+  const jobs = hub.store.openJobs().length;
+  hub.post(1, { authorKind: 'user', author: 'owner', name: '我', text: '@DeepSeek 允许所有' });
+  assert.equal(await decided(first.outcome), 'allowed-once');
+  const [card] = cardsIn(hub, 1);
+  assert.equal(cardState(hub, card.id), 'allowed_all');
+  assert.equal(JSON.parse(hub.store.message(card.id).card).decided_by, 'text');
+  await settle();
+  assert.equal(hub.store.openJobs().length, jobs, 'the reply is an answer, not a new job');
+  assert.equal(agent.prompts.length, 1);
+  // Later asks in the same Session: allowed, no card.
+  const later = askTool(dsh, members, agent, { command: 'ls' });
+  assert.equal(await decided(later.outcome), 'allowed-once');
+  assert.equal(cardsIn(hub, 1).length, 1);
+});
+
+test('DSH approval #557: a cancelled or recalled turn expires its card; a Web UI turn goes to the next answerer', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const agent = await openTurn(hub, dsh, 1);
+  const abort = new AbortController();
+  const cancelled = askTool(dsh, members, agent, { signal: abort.signal });
+  await settle();
+  const [c1] = cardsIn(hub, 1);
+  abort.abort(); // DSH's stop button aborts the tool call's signal
+  assert.equal(await decided(cancelled.outcome), 'cancelled');
+  assert.deepEqual(cancelled.ran, []);
+  assert.equal(cardState(hub, c1.id), 'expired');
+  assert.throws(() => hub.approvals.decide(c1.id, 'allow'), /过期/);
+
+  // The owner withdraws the @ while a card waits.
+  const recalled = askTool(dsh, members, agent);
+  await settle();
+  const c2 = cardsIn(hub, 1).at(-1);
+  const job = hub.store.openJobs()[0];
+  members.recall(job.trigger_id);
+  assert.equal(await decided(recalled.outcome), 'cancelled');
+  assert.equal(cardState(hub, c2.id), 'expired');
+
+  // A turn the channel did not start (DSH Web UI) is not ours to answer.
+  dsh.turn(agent, [], null, { id: 'web-1', role: 'user', content: [] });
+  const web = askTool(dsh, members, agent);
+  assert.equal(await decided(web.outcome), 'unavailable');
+  assert.equal(web.fellThrough(), true);
+  assert.equal(cardsIn(hub, 1).length, 2);
+});
+
+test('DSH approval #557: after a restart an undecided card is expired on click, like a cloud-web prompt', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const agent = await openTurn(hub, dsh, 1);
+  askTool(dsh, members, agent);
+  await settle();
+  const [card] = cardsIn(hub, 1);
+  const hub2 = new Hub(hub.store, quiet);
+  const again = fakeDsh();
+  again.attach(hub2, [{ id: 'ds', name: 'DeepSeek' }]);
+  assert.throws(() => hub2.approvals.decide(card.id, 'allow'), /过期/);
+  assert.equal(cardState(hub2, card.id), 'expired');
+});
+
+test('DSH approval #557: Default and Auto review show a card when DSH asks; Full access shows none', async () => {
+  for (const preset of ['default', 'auto', 'full-access']) {
+    const hub = makeHub();
+    const dsh = fakeDsh();
+    const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek', permissionPreset: preset }]);
+    const agent = await openTurn(hub, dsh, 1);
+    const { outcome } = askTool(dsh, members, agent, { preset });
+    await settle();
+    const cards = cardsIn(hub, 1);
+    if (preset === 'full-access') {
+      assert.equal(cards.length, 0, 'Full access: no card');
+      assert.equal(await decided(outcome), 'rejected');
+      continue;
+    }
+    assert.equal(cards.length, 1, `${preset}: one card`);
+    hub.approvals.decide(cards[0].id, 'allow');
+    assert.equal(await decided(outcome), 'allowed-once');
+  }
+});
+
+test('DSH approval #557: another plugin answering approval/request first does not take a DSH member\'s ask', async () => {
+  const hub = makeHub();
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'ds', name: 'DeepSeek' }]);
+  const agent = await openTurn(hub, dsh, 1);
+  // A waterfall like Cordis: prepended listeners run first, each may call next().
+  const listeners = [];
+  const ctx = { on(name, fn, { prepend = false } = {}) { assert.equal(name, 'approval/request'); prepend ? listeners.unshift(fn) : listeners.push(fn); } };
+  const run = (request, i = 0) => (i < listeners.length ? listeners[i](request, () => run(request, i + 1)) : Promise.resolve('unavailable'));
+  // An auto-review style answerer registered before the collab plugin answers every ask itself.
+  ctx.on('approval/request', async () => 'allowed-once');
+  installApprovalAnswerer(ctx, members);
+  const outcome = run({ agent, toolName: 'bash', callId: 'c1', reason: 'outside the sandbox' });
+  await settle();
+  const [card] = cardsIn(hub, 1);
+  assert.ok(card, 'the DSH member\'s card still shows');
+  hub.approvals.decide(card.id, 'deny');
+  assert.equal(await decided(outcome), 'rejected');
 });

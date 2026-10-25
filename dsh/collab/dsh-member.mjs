@@ -9,7 +9,8 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { exitTarget } from './team-exit.mjs';
-import { DEFAULT_DISPATCH_MODE } from './store.mjs';
+import { DEFAULT_DISPATCH_MODE, MAX_TEXT } from './store.mjs';
+import { ChannelApprovals } from './approvals.mjs';
 // Shared with the bridge (bridge/core/team_mode.go): a common part, then one
 // "## <mode>" section per dispatch mode; a member sees only its room's section.
 const TEAM_MODE_FILE = readFileSync(new URL('./team-mode-rules.md', import.meta.url), 'utf8');
@@ -33,7 +34,7 @@ export function memberStatus(hub, tasks = hub?.tasks) {
     return `${m.name} (${m.id})：空闲`;
   }).join('\n');
 }
-import { mentions, nameCalled } from './mentions.mjs';
+import { mentions, nameCalled, split } from './mentions.mjs';
 import { quotePrefix } from './store.mjs';
 import { progressCardOf } from './cloudweb.mjs';
 
@@ -128,6 +129,21 @@ export function friendlyFailure(raw) {
   return `这次没能完成，请检查配置后重试。原始错误：${text}`;
 }
 
+/**
+ * Card text of one approval request, in cc-connect's permission prompt layout:
+ * the tool, what it wants to run (the call's first argument), and DSH's reason.
+ */
+function approvalText(request, session, seqBefore) {
+  const call = request.callId === undefined ? undefined
+    : session.snapshotEvents(seqBefore).find(e => e.type === 'tool/call' && e.data?.callId === request.callId);
+  const arg = call === undefined ? '' : toolArgText(call.data.arguments).trim();
+  // displayReason is a locale map ({ en, zh?, ... }) in DSH's escalation request; reason is a plain string.
+  const shown = request.displayReason;
+  const reason = String((shown && typeof shown === 'object' ? shown.zh ?? shown.en : shown) ?? request.reason ?? '').trim();
+  const lines = [`⚠️ **权限请求** ${request.toolName}`, arg && `\`${arg.replace(/`/g, "'")}\``, reason, '回复 **允许** / **拒绝** / **允许所有**'];
+  return lines.filter(Boolean).join('\n').slice(0, MAX_TEXT);
+}
+
 /** Short text of a tool call's arguments for the card: the first string field (command, path, query), else the raw text. */
 function toolArgText(raw) {
   try {
@@ -210,6 +226,12 @@ export class TurnProgress {
   }
 }
 
+/** Whether text, with @-mentions removed, is the /new command (bridge core cmdNew). */
+export function isNewCommand(text, members) {
+  const rest = split(text, members).filter(([, id]) => id === null).map(([seg]) => seg).join('').trim();
+  return /^\/new(\s|$)/.test(rest);
+}
+
 export class DshMembers {
   /**
    * @param hub - Hub instance.
@@ -233,6 +255,10 @@ export class DshMembers {
     this.hooked = new WeakSet();
     /** memberId -> { cli, agent } live local CLI agents (members with a `cli` field). */
     this.cliAgents = new Map();
+    /** #557: permission cards of channel-started turns, shared with cloud-web bots. */
+    this.approvals = ChannelApprovals.of(hub);
+    /** Session ids whose owner chose 允许所有: later asks in that Session are allowed without a card. */
+    this.allowAll = new Set();
     for (const m of members) this.publish(m);
     hub.onPlan(message => this.plan(message));
   }
@@ -305,6 +331,7 @@ export class DshMembers {
       if (w?.jobId !== job.id || agent === undefined) { running.push(job.member_id); continue; }
       // Close the job first, so neither the discarded listener nor the settle path posts a card or a reply.
       this.store.finishJob(job.id, 'interrupted');
+      this.approvals.expireWhere(p => p.meta?.sessionId === job.session_id);
       if (w.turn === undefined && agent.inbox.remove(job.input_id)) continue;
       this.watching.delete(job.session_id);
       w.resolve(INTERRUPTED);
@@ -312,6 +339,33 @@ export class DshMembers {
       stopped.push(job.member_id);
     }
     return { stopped, running };
+  }
+
+  /**
+   * #557: root approval/request answerer (installed prepended by the plugin).
+   * The Session is held out of the DSH conversation list, so its approval
+   * popup has nowhere to show: a turn the channel started asks in the room of
+   * its job, as a permission card (approvals.mjs). Any other turn — one started
+   * from the DSH Web UI — goes on to the next answerer. The approval service
+   * applies the Session's policy first (Full access: no request at all;
+   * \`never\`: rejected before any answerer), so a card appears exactly when
+   * DSH would have asked. Withdrawing the request (turn cancelled or recalled)
+   * expires the card.
+   */
+  async onApprovalRequest(request, next) {
+    const session = request.agent?.session;
+    const w = session === undefined ? undefined : this.watching.get(session.id);
+    const job = w === undefined ? undefined : this.store.job(w.jobId);
+    const member = job === undefined ? undefined : this.config.get(job.member_id);
+    if (member === undefined || member.cli !== undefined) return next();
+    if (this.allowAll.has(session.id)) return 'allowed-once';
+    const { decision } = this.approvals.open({
+      room: job.room_id, author: { id: member.id, name: member.name }, text: approvalText(request, session, w.seqBefore),
+      signal: request.signal, meta: { sessionId: session.id },
+    });
+    const d = await decision;
+    if (d === 'allow_all') this.allowAll.add(session.id);
+    return d === 'allow' || d === 'allow_all' ? 'allowed-once' : d === 'deny' ? 'rejected' : 'cancelled';
   }
 
   /** Root agent/inbox/discarded listener: a withdrawn input ends its job. */
@@ -333,13 +387,21 @@ export class DshMembers {
     // Solo mode keeps agent-to-agent relays inside the lead's own runtime;
     // an explicit user mention still routes to the named DSH member.
     if (mode === 'solo' && msg.author_kind === 'role') return undefined;
+    // An owner text reply that decides (or is withheld from) a member's permission card is not a new ask for it.
+    const answered = this.approvals.answerByText(msg);
     const hit = mentions(msg.text, this.hub.routable());
     const only = this.hub.replyRoute(msg);
     const leadID = this.hub.selectedPrimaryMember()?.id;
     const leadTarget = msg.author_kind === 'user' && leadID !== undefined && target === undefined && only === null && hit.size === 0;
-    const targets = [...this.config.keys()].filter(id => id !== msg.author && (!target || target === id)
+    const targets = [...this.config.keys()].filter(id => id !== msg.author && !answered.has(id) && (!target || target === id)
       && (only !== null ? only.has(id) : hit.has(id) || (leadTarget && id === leadID) || (msg.author_kind === 'role' && nameCalled(msg.text, this.config.get(id).name, [...this.config.keys()].filter(o => o !== id).map(o => this.config.get(o).name)))));
     if (targets.length === 0) return undefined;
+    // /new goes to the members the message reaches, as on Discord where only the addressed bot handles it.
+    if (msg.author_kind === 'user' && isNewCommand(msg.text, this.hub.routable())) {
+      return () => {
+        for (const id of targets) this.enqueue({ member_id: id, room_id: msg.room_id }, () => this.renew(id, msg));
+      };
+    }
     if (msg.author_kind === 'role' && this.store.relayDepth(msg.room_id, msg.id) > this.maxRelay) {
       return () => this.hub.post(msg.room_id, {
         authorKind: 'system', author: 'system', name: 'system', clientKey: `relay-cap-${msg.id}`,
@@ -590,10 +652,38 @@ export class DshMembers {
     });
   }
 
-  /** Live Agent for (member, room): loaded, resumed, or newly created and bound. */
+  /**
+   * Live Agent for (member, room): loaded, resumed, or newly created and bound.
+   * A bound Session that was archived or is gone from session persistence is
+   * replaced by a new one (rebind), so the member keeps answering; its old
+   * memory stays in the old Session. Other resume errors propagate.
+   */
   async ensureAgent(member, room) {
     const binding = this.store.binding(member.id, room.id);
-    if (binding !== undefined) return this.liveAgent(binding.session_id, member);
+    if (binding === undefined) return this.createAgent(member, room);
+    const agent = await this.boundAgent(binding.session_id, member);
+    return agent ?? this.createAgent(member, room);
+  }
+
+  /** The bound Session's Agent, or undefined when the Session can no longer serve the channel. */
+  async boundAgent(sessionId, member) {
+    const { ctx } = this.rt;
+    const why = ctx.workspaceRegistry.archivedSessionIds?.includes(sessionId) ? 'archived'
+      : ctx.agents.get(sessionId) === undefined && await ctx.sessionPersistence.stat(sessionId) === undefined ? 'missing' : undefined;
+    // Any other resume error is a real failure: let it surface so the old
+    // Session (and the member's memory in it) is not silently replaced.
+    if (why === undefined) return this.liveAgent(sessionId, member);
+    this.rt.logger.info('collab: Session %s is %s, starting a new one', sessionId, why);
+    return undefined;
+  }
+
+  /**
+   * Create a new Session for (member, room) and bind it, replacing any old
+   * binding. The Session carries origin "subagent" so DSH keeps it out of the
+   * conversation list: the plugin holds it, the user cannot archive it, and
+   * /new in the channel is the way to start over.
+   */
+  async createAgent(member, room) {
     const { ctx } = this.rt;
     const preset = await ctx.agentPresets.resolve(member.agentPreset);
     const scope = await ctx.agentPresets.acquireScope(preset.id);
@@ -604,7 +694,7 @@ export class DshMembers {
       workspace = await ctx.workspaceRegistry.create(this.rt.workspacePath);
       handle = await ctx.agents.create({
         sessionId,
-        meta: { cwd: workspace.path, agentPreset: preset.id },
+        meta: { cwd: workspace.path, agentPreset: preset.id, origin: 'subagent' },
         agentOptions: this.selection(member),
         setup: async (agentCtx) => {
           await ctx.agentPresets.mount(agentCtx, preset.id);
@@ -615,10 +705,39 @@ export class DshMembers {
       await scope[Symbol.asyncDispose]();
     }
     await workspace.attachSession(sessionId);
+    // setup ran before the Agent existed, so record it here: liveAgent must not hook it again.
+    this.hooked.add(handle.agent);
     if (member.permissionPreset !== undefined) ctx.permissionPresets.set(handle.agent.session, member.permissionPreset);
     ctx.sessionTitle.rename(handle.agent.session, `#${room.name} · ${member.name}`);
-    this.store.bind(member.id, room.id, sessionId);
+    if (this.store.binding(member.id, room.id) === undefined) this.store.bind(member.id, room.id, sessionId);
+    else this.store.rebind(member.id, room.id, sessionId);
     return handle.agent;
+  }
+
+  /**
+   * /new in the channel: each addressed member starts over in this room. A
+   * DSH member gets a new Session (the old one is dropped from the binding),
+   * a CLI member drops its ACP session for the room; both read on from the
+   * /new message, not from earlier history.
+   */
+  async renew(memberId, msg) {
+    const member = this.config.get(memberId);
+    const room = this.store.room(msg.room_id);
+    if (member === undefined || room === undefined) return;
+    if (member.cli !== undefined) {
+      // Drop the live and the persisted ACP session and point the binding back at
+      // runCli's placeholder, so the next turn has no resumeId to session/load.
+      const agent = this.cliAgents.get(member.id)?.agent;
+      agent?.sessions?.delete(String(room.id));
+      agent?.saved?.delete(String(room.id));
+      if (this.store.binding(member.id, room.id) !== undefined) this.store.rebind(member.id, room.id, `cli:${member.cli}:${member.id}:${room.id}`);
+    } else await this.createAgent(member, room);
+    if (this.closed) return;
+    this.store.advanceCursor(member.id, room.id, msg.id);
+    this.hub.post(room.id, {
+      authorKind: 'system', author: 'system', name: 'system', clientKey: `dsh-new-${msg.id}-${member.id}`,
+      text: `✅ ${member.name} 的新会话已创建`,
+    });
   }
 
   async liveAgent(sessionId, member) {
@@ -630,10 +749,29 @@ export class DshMembers {
       if (member !== undefined && !this.hooked.has(loaded)) this.setup(loaded.ctx, member, loaded);
       return loaded;
     }
-    return (await ctx.agents.resume({
-      resumeSessionId: sessionId,
-      ...(member === undefined ? {} : { agentOptions: this.selection(member), setup: s => this.setup(s, member) }),
-    })).agent;
+    if (member === undefined) return (await ctx.agents.resume({ resumeSessionId: sessionId })).agent;
+    // Resume assembles the Agent the same way createAgent does: mount the
+    // member's agent preset (its tool set) and apply its permission preset.
+    // Installing only the request hook left a resumed Session with just the
+    // built-in tools after a DSH restart.
+    const preset = await ctx.agentPresets.resolve(member.agentPreset);
+    const scope = await ctx.agentPresets.acquireScope(preset.id);
+    let handle;
+    try {
+      handle = await ctx.agents.resume({
+        resumeSessionId: sessionId,
+        agentOptions: this.selection(member),
+        setup: async (agentCtx) => {
+          await ctx.agentPresets.mount(agentCtx, preset.id);
+          this.setup(agentCtx, member);
+        },
+      });
+    } finally {
+      await scope[Symbol.asyncDispose]();
+    }
+    this.hooked.add(handle.agent);
+    if (member.permissionPreset !== undefined) ctx.permissionPresets.set(handle.agent.session, member.permissionPreset);
+    return handle.agent;
   }
 
   /** The member's model, or the host default at the time of the call (webhook pattern). */
