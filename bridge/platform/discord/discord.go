@@ -35,7 +35,6 @@ type replyContext struct {
 	lead             string // maomao fork: the primary role @-ed this sub to start the turn; the reply goes back to it
 	final            bool   // maomao fork: this send carries the turn's final answer (core.FinalReplyMarker)
 	notice           bool   // maomao fork: this send is a cc-connect notice (core.SystemNoticeMarker); see aux_channels.go
-	compact          bool   // maomao fork: progress as one compact line, no card (core.CompactProgressMarker); see compact_progress.go
 }
 
 // interactionReplyCtx handles Discord slash command (Application Command)
@@ -49,9 +48,8 @@ type interactionReplyCtx struct {
 	firstDone        bool
 	// maomao fork: an agent-output copy (MarkAgentReply) points at the original,
 	// which keeps the "first reply edits the deferred response" state for both.
-	parent  *interactionReplyCtx
-	agent   bool
-	compact bool // progress as one compact line, no card (core.CompactProgressMarker)
+	parent *interactionReplyCtx
+	agent  bool
 }
 
 // takeFirst reports whether this is the first reply for the interaction.

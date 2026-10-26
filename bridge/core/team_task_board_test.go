@@ -207,7 +207,6 @@ func TestTeamTaskBoardNextOverdue(t *testing.T) {
 func TestUpdateTeamBoardsPostsTaskBoard(t *testing.T) {
 	p := &stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "feishu"}}
 	e := NewEngine("lead", &stubAgent{}, []Platform{p}, "", LangChinese)
-	allChatsAreWorkspaces(e)
 	defer e.cancel()
 	dir := t.TempDir()
 	e.team = &teamState{dir: dir, board: true}
@@ -258,7 +257,6 @@ func TestTeamTaskBoardUnplacedMainChatOnly(t *testing.T) {
 func TestCloudWebSingleRoleBoardOnce(t *testing.T) {
 	p := &stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "cloud_web"}}
 	e := NewEngine("lead", &stubAgent{}, []Platform{p}, "", LangChinese)
-	allChatsAreWorkspaces(e)
 	defer e.cancel()
 	dir := t.TempDir()
 	e.team = &teamState{dir: dir, board: true}
@@ -317,7 +315,6 @@ func TestTeamBoardMembersLive(t *testing.T) {
 func TestTeamBoardLiveFollowsWorkspaceHandoff(t *testing.T) {
 	p := &stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "cloud_web"}}
 	e := NewEngine("lead", &stubAgent{}, []Platform{p}, "", LangChinese)
-	allChatsAreWorkspaces(e)
 	defer e.cancel()
 	dataDir := t.TempDir()
 	e.SetDataDir(dataDir)
