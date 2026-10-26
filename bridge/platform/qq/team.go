@@ -56,13 +56,18 @@ func (p *Platform) selfIDString() string {
 	return ""
 }
 
-// joinTeam registers this bot once it knows who it is, and learns its groups so a bare
-// "qq:<id>" session key can be told apart from a private chat (ReconstructReplyCtx).
+// joinTeam registers this bot once it knows who it is, and learns its groups in the background
+// so a bare "qq:<id>" session key can be told apart from a private chat (ReconstructReplyCtx).
+// Start does not wait for the group list; a group is also learned from its first message.
 func (p *Platform) joinTeam(nick string) {
 	p.team.nick.Store(&nick)
 	if id := p.selfIDValue(); id != 0 {
 		teamPlatforms.Store(id, p)
 	}
+	go p.loadGroups()
+}
+
+func (p *Platform) loadGroups() {
 	raw, err := p.callAPIRaw("get_group_list", nil)
 	if err != nil {
 		slog.Debug("qq: get_group_list failed", "error", err)

@@ -408,10 +408,11 @@ func startBot(t *testing.T, f *fakeOneBot, id int64, nick string, opts map[strin
 func TestFakeOneBot_DeliversGroupPostsToOtherMembers(t *testing.T) {
 	f := newFakeOneBot(t)
 	f.group(500, "开发群", 1, 2, 9)
-	a, aIn := startBot(t, f, 1, "橘", nil)
-	_, bIn := startBot(t, f, 2, "龙娘", nil)
+	team := map[string]any{"team_lead_bot": "1", "allow_from": "9"}
+	a, aIn := startBot(t, f, 1, "橘", team)
+	_, bIn := startBot(t, f, 2, "龙娘", team)
 
-	f.say(500, 9, "Li", text("大家好"))
+	f.say(500, 9, "Li", at(1), text(" "), at(2), text(" 大家好"))
 	waitFor(t, "person's post at both bots", func() bool { return len(aIn.snapshot()) == 1 && len(bIn.snapshot()) == 1 })
 
 	rc := &replyContext{messageType: "group", groupID: 500}

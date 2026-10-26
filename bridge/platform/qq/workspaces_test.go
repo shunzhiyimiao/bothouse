@@ -24,6 +24,7 @@ func leadEngine(t *testing.T, lead *Platform) *core.Engine {
 	e := core.NewEngine("lead", nopAgent{}, []core.Platform{lead}, "", core.LangChinese)
 	t.Cleanup(func() { _ = e.Stop() })
 	e.SetDataDir(t.TempDir())
+	e.SetTeam(t.TempDir(), "lead", true) // inject: this project is the primary role
 	e.SetTeamWorkspaces(true)
 	e.GetSessions().GetOrCreateActive("qq:500")
 	return e

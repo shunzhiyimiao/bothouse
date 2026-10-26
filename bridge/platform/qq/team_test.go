@@ -97,12 +97,17 @@ func TestTeam_LeadHandsOffAndTheAnswerComesBack(t *testing.T) {
 	}
 	sendAs(t, sub, rc, "测试全过（第一段）", true)
 	sendAs(t, sub, rc, "（第二段）", true)
-	waitFor(t, "answer back at the lead", func() bool { return len(leadIn.snapshot()) == 1 })
+	waitFor(t, "both answer chunks at the lead", func() bool { return len(leadIn.snapshot()) == 2 })
 	time.Sleep(100 * time.Millisecond)
 
+	// The first chunk @-s the lead and starts its check; the second reaches it as a teammate's
+	// context only (core never starts a turn from FromBot without Mentioned).
 	back := leadIn.snapshot()
-	if len(back) != 1 || !back[0].FromBot || !back[0].Mentioned || !strings.Contains(back[0].Content, "测试全过") {
-		t.Fatalf("lead got %+v, want exactly the first answer chunk as a teammate's @", back)
+	if len(back) != 2 || !back[0].FromBot || !back[0].Mentioned || !strings.Contains(back[0].Content, "测试全过") {
+		t.Fatalf("lead got %+v, want the first answer chunk as a teammate's @", back)
+	}
+	if !back[1].FromBot || back[1].Mentioned {
+		t.Fatalf("second chunk = %+v, want teammate context, not a call", back[1])
 	}
 	posts = f.groupPosts(teamGroup)
 	last := posts[len(posts)-1]
@@ -171,6 +176,7 @@ func TestNoTeam_BotsDoNotAnswerEachOther(t *testing.T) {
 // tells them apart, so cron and workspace sends reach the group.
 func TestReconstructReplyCtx_TeamGroupKey(t *testing.T) {
 	_, lead, _, _, _ := startTeam(t, "9")
+	waitFor(t, "group list loaded", func() bool { return lead.knownGroup("500") })
 	rc, err := lead.ReconstructReplyCtx("qq:500")
 	if err != nil {
 		t.Fatal(err)
