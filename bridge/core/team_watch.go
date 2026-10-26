@@ -46,9 +46,31 @@ func init() { watchCheckAfterNs.Store(int64(watchCheckAfterDefault)) }
 // watchCheckAfter is the current check time after a claim (see watchCheckAfterNs).
 func watchCheckAfter() time.Duration { return time.Duration(watchCheckAfterNs.Load()) }
 
-// Var only so tests can change it; not configurable.
-// Source: d10-fire MAX_RENEW = 2 (lead ruling 2026-10-25, at most 30 minutes); same as tasks.mjs MAX_RENEWALS.
-var watchMaxRenew = 2
+// watchMaxRenew caps renewals on progress; 0 means no cap (renew while there is progress).
+// Var only so tests can change it; not configurable. This cap counts all renewals; a
+// busy-only renewal is additionally capped by watchBusyMaxRenew.
+// Source: user 2026-10-26 agreed「有进展就一直续，没进展才停」(#429), replacing the earlier cap of 2;
+// same as tasks.mjs MAX_RENEWALS.
+var watchMaxRenew = 0
+
+// watchBusyMaxRenew caps renewals granted only because a session of the workspace is still in
+// a turn (no owner post and no finished turn in the window). Without it a stuck turn that
+// holds the session renews forever under watchMaxRenew = 0 (PR #430 review P1). Two checks =
+// 30 minutes, the old cap. Source: the pre-#429 watchMaxRenew default of 2.
+const watchBusyMaxRenew = 2
+
+// watchCanRenew: a watch renewed n times may renew again on progress.
+func watchCanRenew(n int) bool { return watchMaxRenew <= 0 || n < watchMaxRenew }
+
+// watchProgress says why a check found progress. A busy-only renewal has its own budget;
+// real progress (a post, a finished turn on Feishu) is unlimited and resets that budget.
+type watchProgress int
+
+const (
+	watchProgressNone watchProgress = iota
+	watchProgressBusy
+	watchProgressReal
+)
 
 // Live background work can extend a handoff to six ten-minute renewals in total.
 // Ordinary renewals also consume this budget; it survives restart via Renewed.
@@ -77,9 +99,9 @@ type handoffWatch struct {
 	// park pauses the handoff (chat, at) of workspace key and frees the workspace when it was the
 	// last task there (APIServer.parkAndReset: also resets the teammates' sessions).
 	park func(key, chat string, at time.Time) (bool, error)
-	// progress: the workspace showed progress since `since` (workspaceProgress; nil = none). An
-	// error: the signal could not be read this time (retried, see check).
-	progress func(key string, h TeamHandoff, since time.Time) (bool, error)
+	// progress: why the workspace showed progress since `since` (workspaceProgress; nil =
+	// none). An error: the signal could not be read this time (retried, see check).
+	progress func(key string, h TeamHandoff, since time.Time) (watchProgress, error)
 	// engines: the role engines whose sessions in the workspace count as work in progress (all
 	// engines of the bridge once started; the watch's own engine before).
 	engines func() []*Engine
@@ -306,12 +328,22 @@ func (w *handoffWatch) check(d watchDue, now time.Time) time.Time {
 				slog.Warn("team watch: cannot read the progress signal; counted as no progress", "workspace", key, "attempts", fails, "error", perr)
 			}
 		}
-		if progressed {
+		if progressed != watchProgressNone {
 			due := h.Due.Add(watchCheckAfter())
 			if !due.After(now) {
 				due = now.Add(watchCheckAfter())
 			}
-			ok, err := w.updateHandoff(key, h, func(x *TeamHandoff) { x.Due = due; x.Renewed++; x.ReadFails = 0; x.Since = time.Time{} })
+			ok, err := w.updateHandoff(key, h, func(x *TeamHandoff) {
+				x.Due = due
+				x.Renewed++
+				x.ReadFails = 0
+				x.Since = time.Time{}
+				if progressed == watchProgressBusy {
+					x.BusyRenewed++
+				} else {
+					x.BusyRenewed = 0
+				}
+			})
 			if !ok && err == nil {
 				return time.Time{}
 			}
@@ -405,9 +437,18 @@ func (w *handoffWatch) workspaceProgress(key string, h TeamHandoff, since time.T
 	}
 	spoke, err := w.ownerSpoke(key, h.Owner, since)
 	if errors.Is(err, errWatchNoHistory) {
-		return w.workspaceTurnSince(key, since), nil
+		if w.workspaceTurnSince(key, since) {
+			return watchProgressReal, nil
+		}
+		return watchProgressNone, nil
 	}
-	return spoke, err
+	if err != nil {
+		return watchProgressNone, err
+	}
+	if spoke {
+		return watchProgressReal, nil
+	}
+	return watchProgressNone, nil
 }
 
 // workspaceBackgroundProgress reads the same native task state used by idle

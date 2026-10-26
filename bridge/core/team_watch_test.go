@@ -179,8 +179,9 @@ func TestWatchIgnoresOldHandoffs(t *testing.T) {
 }
 
 func TestWatchRenewsOnProgressAtMostTwice(t *testing.T) {
+	withWatchMaxRenew(t, 2)
 	e, p, w, h := watchFixture(t, "u1", "")
-	w.progress = func(string, TeamHandoff, time.Time) (bool, error) { return true, nil }
+	w.progress = func(string, TeamHandoff, time.Time) (watchProgress, error) { return watchProgressReal, nil }
 	now := h.Due
 	for i := 1; i <= watchMaxRenew; i++ {
 		next := w.tick(now)
@@ -581,7 +582,7 @@ func TestWatchNoOwnerSelfPostRenews(t *testing.T) {
 	at := h.Due.Add(-time.Minute)
 	p.post("ws1", k5aOwner, "别人的进度", at)
 	p.postSelf("ws1", "【接】已派龙娘", at)
-	if ok, _ := w.workspaceProgress("discord:ws1", h, h.At); ok {
+	if kind, _ := w.workspaceProgress("discord:ws1", h, h.At); kind != watchProgressNone {
 		t.Fatal("another author or a stance line of this bot is not progress")
 	}
 	p.postSelf("ws1", "龙娘交回了第一块，在派第二块", at)
@@ -610,6 +611,7 @@ func TestWatchStanceAndOtherPostsAreNoProgress(t *testing.T) {
 
 // Progress every time: renewed at most twice (30 minutes in all), then nudged and parked.
 func TestWatchOwnerPostsRenewAtMostTwice(t *testing.T) {
+	withWatchMaxRenew(t, 2)
 	e, p, w, h := progressFixture(t, k5aOwner)
 	now := h.Due
 	for i := 1; i <= watchMaxRenew; i++ {
@@ -651,6 +653,7 @@ func TestWatchNoSignalStops(t *testing.T) {
 // without any post and with no owner named: renewed, not stopped. Renewals used up: stopped
 // anyway.
 func TestWatchBusySessionIsNotStopped(t *testing.T) {
+	withWatchMaxRenew(t, 2)
 	e, p, w, h := progressFixture(t, "")
 	s := e.sessions.GetOrCreateActive("discord:ws1:u1")
 	if !s.TryLock() {
@@ -680,13 +683,13 @@ func TestWatchBusyOnAnyEngine(t *testing.T) {
 	other := mate.sessions.GetOrCreateActive("discord:ws9:u1")
 	other.TryLock()
 	defer other.Unlock()
-	if ok, _ := w.workspaceProgress("discord:ws1", h, h.At); ok {
+	if kind, _ := w.workspaceProgress("discord:ws1", h, h.At); kind != watchProgressNone {
 		t.Fatal("a turn in another channel is not progress here")
 	}
 	s := mate.sessions.GetOrCreateActive("discord:ws1:mate")
 	s.TryLock()
 	defer s.Unlock()
-	if ok, _ := w.workspaceProgress("discord:ws1", h, h.At); !ok {
+	if kind, _ := w.workspaceProgress("discord:ws1", h, h.At); kind == watchProgressNone {
 		t.Fatal("a teammate's turn in the workspace is progress")
 	}
 }
@@ -773,8 +776,8 @@ func TestWatchFeishuUsesSessionUpdate(t *testing.T) {
 	s.mu.Lock()
 	s.UpdatedAt = h.At.Add(-time.Minute)
 	s.mu.Unlock()
-	if ok, err := w.workspaceProgress("feishu:ws1", h, h.At); ok || err != nil {
-		t.Fatalf("a turn before the window is no progress, got %v %v", ok, err)
+	if kind, err := w.workspaceProgress("feishu:ws1", h, h.At); kind != watchProgressNone || err != nil {
+		t.Fatalf("a turn before the window is no progress, got %v %v", kind, err)
 	}
 	s.mu.Lock()
 	s.UpdatedAt = h.Due.Add(-time.Minute)
