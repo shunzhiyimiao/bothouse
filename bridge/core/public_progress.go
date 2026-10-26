@@ -106,6 +106,9 @@ type PublicProgress struct {
 	dataDir         string
 	project         string
 	resolveReporter func(project, platform, session string) (TaskCardPublisher, error)
+	// resolveWorkspace validates an explicit task workspace and returns its
+	// "<platform>:<id>" channel key; nil when workspace routing is off.
+	resolveWorkspace func(chatSession, workspace string) (string, error)
 	// notBound tells the channel once that project must be /bind-ed there (bound=false), or
 	// forgets that notice once it is bound (team_hints.go).
 	notBound func(session, project string, bound bool)
@@ -649,6 +652,7 @@ func (e *Engine) EnablePublicProgress() error {
 	}
 	e.publicProgress = p
 	p.resolveReporter = e.resolveTaskReporter
+	p.resolveWorkspace = e.resolveTaskWorkspace
 	p.reporterName = e.taskReporterName
 	p.notBound = e.noteBound
 	p.projectName = e.projectDisplayName

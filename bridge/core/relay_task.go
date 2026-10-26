@@ -16,13 +16,14 @@ import (
 // A receipt is committed before execution. Delivery retries never run tools
 // again, including after restart or an ambiguous execution failure.
 type taskRelayRecord struct {
-	Hash     string           `json:"hash"`
-	Target   string           `json:"target"`
-	Status   string           `json:"status"` // running, done, failed; running after restart is unresolved
-	Response string           `json:"response,omitempty"`
-	Error    string           `json:"error,omitempty"`
-	LastSeq  int64            `json:"last_seq,omitempty"`
-	Reports  map[int64]string `json:"reports,omitempty"`
+	Hash      string           `json:"hash"`
+	Target    string           `json:"target"`
+	Workspace string           `json:"workspace,omitempty"` // execution channel; empty = source chat
+	Status    string           `json:"status"`              // running, done, failed; running after restart is unresolved
+	Response  string           `json:"response,omitempty"`
+	Error     string           `json:"error,omitempty"`
+	LastSeq   int64            `json:"last_seq,omitempty"`
+	Reports   map[int64]string `json:"reports,omitempty"`
 	// Ten-minute watch (relay_watch.go); kept with the receipt, never a workspace handoff.
 	WatchDue     time.Time `json:"watch_due,omitempty"`
 	WatchFrom    time.Time `json:"watch_from,omitempty"` // this window began (member row updates after it count)
@@ -43,11 +44,17 @@ type taskRelay struct {
 
 // Task relays share execution tracking with ordinary relays, but keep each
 // dispatch in a distinct conversation and exclude raw tools from public facts.
-func (e *Engine) handleRelay(ctx context.Context, fromProject, sourceSessionKey, message, taskScope string, stop <-chan struct{}, complete func(string, error)) (string, error) {
+func (e *Engine) handleRelay(ctx context.Context, fromProject, sourceSessionKey, workspaceSessionKey, message, taskScope string, stop <-chan struct{}, complete func(string, error)) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	agent, sessions, key, err := e.relayContextForSourceSessionKey(fromProject, sourceSessionKey)
+	// A workspace changes where the agent runs; the source session stays the
+	// task's identity for reports, facts and the result.
+	resolveKey := sourceSessionKey
+	if workspaceSessionKey != "" {
+		resolveKey = workspaceSessionKey
+	}
+	agent, sessions, key, err := e.relayContextForSourceSessionKey(fromProject, resolveKey)
 	if err != nil {
 		return "", err
 	}
@@ -74,7 +81,7 @@ func (rm *RelayManager) sendTask(ctx context.Context, req RelayRequest, source, 
 	// Distinct request sessions prevent concurrent dispatches from sharing a
 	// conversation. This is routing, not a tool/filesystem sandbox.
 	scope := req.TaskID + ":" + fmt.Sprintf("%x", sha256.Sum256([]byte(req.RequestID)))
-	response, runErr := target.handleRelay(relayCtx, req.From, req.SessionKey, d.prompt()+req.Message, scope, d.stop, func(response string, runErr error) {
+	response, runErr := target.handleRelay(relayCtx, req.From, req.SessionKey, d.req.Workspace, d.prompt()+req.Message, scope, d.stop, func(response string, runErr error) {
 		if err := d.finish(response, runErr); err != nil {
 			slog.Error("relay: background result checkpoint failed", "task_id", req.TaskID, "error", err)
 		}
@@ -146,9 +153,31 @@ func (p *PublicProgress) beginTaskRelay(req RelayRequest, name string) (*taskRel
 	if r.record.Task.SessionKey != req.SessionKey {
 		return nil, nil, errors.New("relay: task belongs to a different session")
 	}
-	b, _ := json.Marshal([]string{req.To, req.Message})
+	// The workspace is execution location only: the task receipt, reports and
+	// result stay on the source task. Re-validate here, at commit time, so a
+	// workspace re-claimed since the request was parsed cannot take the work.
+	if req.Workspace != "" {
+		if p.resolveWorkspace == nil {
+			return nil, nil, errors.New("relay: workspace routing is not enabled")
+		}
+		ws, err := p.resolveWorkspace(req.SessionKey, req.Workspace)
+		if err != nil {
+			return nil, nil, fmt.Errorf("relay: workspace: %w", err)
+		}
+		req.Workspace = ws
+	}
+	parts := []string{req.To, req.Message}
+	if req.Workspace != "" {
+		// Old receipts (no workspace) keep their hash; an explicit workspace is
+		// part of the request identity, so the same id cannot move the target.
+		parts = append(parts, "workspace:"+req.Workspace)
+	}
+	b, _ := json.Marshal(parts)
 	hash := fmt.Sprintf("%x", sha256.Sum256(b))
 	if receipt, ok := r.record.Relays[req.RequestID]; ok {
+		if receipt.Workspace != req.Workspace {
+			return nil, nil, fmt.Errorf("relay: request_id %q was already dispatched to workspace %q", req.RequestID, receipt.Workspace)
+		}
 		if receipt.Hash != hash {
 			return nil, nil, errors.New("relay: request_id reused with different content")
 		}
@@ -160,12 +189,16 @@ func (p *PublicProgress) beginTaskRelay(req RelayRequest, name string) (*taskRel
 	if !taskRelayActive(r) {
 		return nil, nil, errors.New("relay: task is not active")
 	}
-	if _, err := p.taskReporter(req.To, r.record.Platform, req.SessionKey, r.publisher); err != nil {
+	reporterSession := req.SessionKey
+	if req.Workspace != "" {
+		reporterSession = req.Workspace
+	}
+	if _, err := p.taskReporter(req.To, r.record.Platform, reporterSession, r.publisher); err != nil {
 		return nil, nil, fmt.Errorf("relay: reporter: %w", err)
 	}
 	old := snapshotTaskRelay(r)
 	now := time.Now().UTC()
-	r.record.Relays[req.RequestID] = taskRelayRecord{Hash: hash, Target: req.To, Status: "running", WatchFrom: now, WatchDue: now.Add(watchCheckAfter())}
+	r.record.Relays[req.RequestID] = taskRelayRecord{Hash: hash, Target: req.To, Workspace: req.Workspace, Status: "running", WatchFrom: now, WatchDue: now.Add(watchCheckAfter())}
 	p.appendEvent(r, TaskEventProgress, NewI18n(r.record.Lang).Tf(MsgTaskRelayAssigned, name), true)
 	// Assignment text may contain a private report grant; never publish it.
 	if err := p.save(r); err != nil {
