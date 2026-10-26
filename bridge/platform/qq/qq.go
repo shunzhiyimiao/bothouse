@@ -37,10 +37,11 @@ type Platform struct {
 	echoSeq               atomic.Int64
 	echoCh                sync.Map // echo -> chan json.RawMessage
 	cancel                context.CancelFunc
-	selfID                int64
+	selfID                atomic.Int64
 	dedup                 core.MessageDedup
-	groupNameCache        sync.Map // groupID -> group name
-	httpURL            string   // OneBot HTTP API URL, e.g. "http://127.0.0.1:3000"
+	groupNameCache        sync.Map  // groupID -> group name
+	httpURL               string    // OneBot HTTP API URL, e.g. "http://127.0.0.1:3000"
+	team                  teamState // team mode (team.go, issue #344)
 }
 
 func New(opts map[string]any) (core.Platform, error) {
@@ -57,14 +58,35 @@ func New(opts map[string]any) (core.Platform, error) {
 	httpURL, _ := opts["http_url"].(string)
 	httpURL = strings.TrimRight(httpURL, "/")
 
-	return &Platform{
+	p := &Platform{
 		wsURL:                 wsURL,
 		token:                 token,
 		allowFrom:             allowFrom,
 		shareSessionInChannel: shareSessionInChannel,
-		httpURL:            httpURL,
-	}, nil
+		httpURL:               httpURL,
+	}
+	if lead := optString(opts["team_lead_bot"]); lead != "" {
+		p.team.lead = lead
+	}
+	return p, nil
 }
+
+// optString reads an option TOML may give as a string or a number (a QQ number).
+func optString(v any) string {
+	switch x := v.(type) {
+	case string:
+		return strings.TrimSpace(x)
+	case int64:
+		return strconv.FormatInt(x, 10)
+	case int:
+		return strconv.Itoa(x)
+	case float64:
+		return strconv.FormatInt(int64(x), 10)
+	}
+	return ""
+}
+
+func (p *Platform) selfIDValue() int64 { return p.selfID.Load() }
 
 func (p *Platform) Name() string { return "qq" }
 
@@ -96,10 +118,11 @@ func (p *Platform) Start(handler core.MessageHandler) error {
 	// Get bot self info
 	if info, err := p.callAPI("get_login_info", nil); err == nil {
 		if uid, ok := info["user_id"].(float64); ok {
-			p.selfID = int64(uid)
+			p.selfID.Store(int64(uid))
 		}
 		nick, _ := info["nickname"].(string)
-		slog.Info("qq: logged in", "qq", p.selfID, "nickname", nick)
+		slog.Info("qq: logged in", "qq", p.selfIDValue(), "nickname", nick)
+		p.joinTeam(nick)
 	} else {
 		slog.Warn("qq: get_login_info failed; self-message filter disabled until next reconnect", "error", err)
 	}
@@ -175,7 +198,7 @@ func (p *Platform) handleMessage(payload map[string]any) {
 	groupID := jsonInt64(payload, "group_id")
 	messageID := jsonInt64(payload, "message_id")
 
-	if userID == p.selfID {
+	if userID == p.selfIDValue() {
 		return
 	}
 
@@ -192,7 +215,8 @@ func (p *Platform) handleMessage(payload map[string]any) {
 		return
 	}
 
-	if !p.isAllowed(userID) {
+	_, fromBot := p.teammate(userID)
+	if !fromBot && !p.isAllowed(userID) {
 		return
 	}
 
@@ -210,6 +234,13 @@ func (p *Platform) handleMessage(payload map[string]any) {
 
 	// Parse message content from CQ message array or raw_message
 	text, images, files, audio := p.parseMessage(payload, msgType, groupID)
+	if msgType == "group" && p.teamMode() {
+		p.handleTeamGroup(payload, userID, groupID, messageID, userName, fromBot, images, files, audio)
+		return
+	}
+	if fromBot {
+		return // outside team mode a teammate's post is not a request
+	}
 	if text == "" && len(images) == 0 && len(files) == 0 && audio == nil {
 		return
 	}
@@ -450,7 +481,7 @@ func (p *Platform) Send(ctx context.Context, replyCtx any, content string) error
 	}
 
 	params := map[string]any{
-		"message": content,
+		"message": p.outgoing(rctx, content),
 	}
 
 	if rctx.messageType == "group" {
@@ -501,6 +532,7 @@ func (p *Platform) SendImage(ctx context.Context, replyCtx any, img core.ImageAt
 var _ core.ImageSender = (*Platform)(nil)
 
 func (p *Platform) Stop() error {
+	p.leaveTeam()
 	if p.cancel != nil {
 		p.cancel()
 	}
@@ -534,6 +566,17 @@ func (p *Platform) resolveGroupName(groupID int64) string {
 // ── OneBot API call via WebSocket ───────────────────────────────
 
 func (p *Platform) callAPI(action string, params map[string]any) (map[string]any, error) {
+	raw, err := p.callAPIRaw(action, params)
+	if err != nil {
+		return nil, err
+	}
+	var result map[string]any
+	_ = json.Unmarshal(raw, &result)
+	return result, nil
+}
+
+// callAPIRaw sends one OneBot action and returns its data as is (get_group_list returns a list).
+func (p *Platform) callAPIRaw(action string, params map[string]any) (json.RawMessage, error) {
 	seq := p.echoSeq.Add(1)
 	echo := strconv.FormatInt(seq, 10)
 
@@ -574,13 +617,20 @@ func (p *Platform) callAPI(action string, params map[string]any) (map[string]any
 		if resp.RetCode != 0 {
 			return nil, fmt.Errorf("qq: API %s failed (retcode=%d)", action, resp.RetCode)
 		}
-		var result map[string]any
-		_ = json.Unmarshal(resp.Data, &result)
-		return result, nil
+		return resp.Data, nil
 
 	case <-time.After(15 * time.Second):
 		return nil, fmt.Errorf("qq: API %s timeout", action)
 	}
+}
+
+// decodeList reads OneBot list data (e.g. get_group_list) as objects.
+func decodeList(raw json.RawMessage) []map[string]any {
+	var list []map[string]any
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return nil
+	}
+	return list
 }
 
 // callHTTPAPI calls a OneBot v11 HTTP endpoint (e.g. /upload_group_file).
@@ -640,6 +690,9 @@ type replyContext struct {
 	userID      int64
 	groupID     int64
 	messageID   int32
+	agent       bool   // core.AgentReplyMarker: the send carries agent output
+	final       bool   // core.FinalReplyMarker: the send is the turn's answer
+	lead        string // team mode: the lead QQ this turn answers to (team.go dispatchedBy)
 }
 
 func (p *Platform) ReconstructReplyCtx(sessionKey string) (any, error) {
@@ -657,12 +710,23 @@ func (p *Platform) ReconstructReplyCtx(sessionKey string) (any, error) {
 		uid, _ := strconv.ParseInt(parts[2], 10, 64)
 		return &replyContext{messageType: "group", groupID: gid, userID: uid}, nil
 	}
+	if p.knownGroup(parts[1]) {
+		// team mode keys a group as qq:{groupID}, like a private chat; the group list tells them apart
+		gid, _ := strconv.ParseInt(parts[1], 10, 64)
+		return &replyContext{messageType: "group", groupID: gid}, nil
+	}
 	uid, _ := strconv.ParseInt(parts[1], 10, 64)
 	return &replyContext{messageType: "private", userID: uid}, nil
 }
 
 func (p *Platform) isAllowed(userID int64) bool {
-	if p.allowFrom == "" || p.allowFrom == "*" {
+	if strings.TrimSpace(p.allowFrom) == "" || strings.TrimSpace(p.allowFrom) == "*" {
+		if p.teamMode() {
+			p.team.openWarn.Do(func() {
+				slog.Error("qq: team mode refuses people while allow_from is open: anyone in the group could run the roles' tools; set allow_from to your QQ number(s)")
+			})
+			return false
+		}
 		return true
 	}
 	uid := strconv.FormatInt(userID, 10)
