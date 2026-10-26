@@ -154,17 +154,16 @@ func (p *PublicProgress) beginTaskRelay(req RelayRequest, name string) (*taskRel
 		return nil, nil, errors.New("relay: task belongs to a different session")
 	}
 	// The workspace is execution location only: the task receipt, reports and
-	// result stay on the source task. Re-validate here, at commit time, so a
-	// workspace re-claimed since the request was parsed cannot take the work.
+	// result stay on the source task. Canonicalize the selector before looking
+	// up the receipt: a retry must still match the committed dispatch after the
+	// workspace changes hands. Ownership and occupancy are checked below, before
+	// a new receipt is written, so a re-claimed workspace cannot take new work.
 	if req.Workspace != "" {
-		if p.resolveWorkspace == nil {
-			return nil, nil, errors.New("relay: workspace routing is not enabled")
-		}
-		ws, err := p.resolveWorkspace(req.SessionKey, req.Workspace)
+		platform, wsID, err := taskWorkspaceChannelKey(req.SessionKey, req.Workspace)
 		if err != nil {
 			return nil, nil, fmt.Errorf("relay: workspace: %w", err)
 		}
-		req.Workspace = ws
+		req.Workspace = platform + ":" + wsID
 	}
 	parts := []string{req.To, req.Message}
 	if req.Workspace != "" {
@@ -188,6 +187,16 @@ func (p *PublicProgress) beginTaskRelay(req RelayRequest, name string) (*taskRel
 	}
 	if !taskRelayActive(r) {
 		return nil, nil, errors.New("relay: task is not active")
+	}
+	if req.Workspace != "" {
+		if p.resolveWorkspace == nil {
+			return nil, nil, errors.New("relay: workspace routing is not enabled")
+		}
+		// Re-validate at commit time: the claim may have moved since the request
+		// was parsed. The canonical key was already matched against the receipt.
+		if _, err := p.resolveWorkspace(req.SessionKey, req.Workspace); err != nil {
+			return nil, nil, fmt.Errorf("relay: workspace: %w", err)
+		}
 	}
 	reporterSession := req.SessionKey
 	if req.Workspace != "" {

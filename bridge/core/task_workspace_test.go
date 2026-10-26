@@ -9,8 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // A task workspace is an execution location, not a new task identity: it must
@@ -129,6 +131,9 @@ func TestAssignMemberWorkspaceScopesCredentialToWorkspace(t *testing.T) {
 	reloaded, ok := restored.Task(id)
 	if !ok || len(reloaded.Members) != 1 || reloaded.Members[0].Workspace != "discord:ws1" {
 		t.Fatalf("restored member = %+v", reloaded)
+	}
+	if _, err := restored.Report(PublicProgressRequest{Project: "source", SessionKey: "discord:ws1", Run: token, Seq: 2, Kind: "update", Summary: "after restart"}); err == nil {
+		t.Fatal("restart kept the member credential alive")
 	}
 }
 
@@ -262,6 +267,275 @@ func TestTaskRelayWorkspaceRequiresTargetBinding(t *testing.T) {
 	}
 	if _, ok := p.records[id].record.Relays[req.RequestID]; ok {
 		t.Fatal("failed binding check left a receipt")
+	}
+}
+
+// The 409 guard that keeps task assignment authorized by the source chat's
+// run is not removed: pointing the assignment session at the workspace still
+// fails, while the same run with an explicit workspace succeeds.
+func TestAssignMemberWorkspaceKeepsSourceRunSessionCheck(t *testing.T) {
+	p, platform, run, id := taskRelayFixture(t)
+	e := NewEngine("source", &stubAgent{}, []Platform{platform}, "", LangChinese)
+	e.SetDataDir(p.dataDir)
+	if err := e.ClaimTeamWorkspace("discord:room:user", "ws1", "工作区1"); err != nil {
+		t.Fatal(err)
+	}
+	p.resolveWorkspace = e.resolveTaskWorkspace
+	p.resolveReporter = func(project, platformName, session string) (TaskCardPublisher, error) {
+		return platform, nil
+	}
+	req := taskWorkspaceAssignment(id, run, "m1", "ws1")
+	req.SessionKey = "discord:ws1"
+	if _, err := p.AssignMember(req); err == nil || !strings.Contains(err.Error(), "not active for this run and session") {
+		t.Fatalf("workspace session assignment = %v", err)
+	}
+	task, _ := p.Task(id)
+	if len(task.Members) != 0 {
+		t.Fatalf("wrong-session assignment created rows: %+v", task.Members)
+	}
+	req.SessionKey = "discord:room:user"
+	if _, err := p.AssignMember(req); err != nil {
+		t.Fatalf("source-run assignment with workspace: %v", err)
+	}
+}
+
+// A member whose bot is not bound in the execution workspace is rejected
+// before a row is recorded.
+func TestAssignMemberWorkspaceRequiresBoundTarget(t *testing.T) {
+	p, platform, run, id := taskRelayFixture(t)
+	e := NewEngine("source", &stubAgent{}, []Platform{platform}, "", LangChinese)
+	e.SetDataDir(p.dataDir)
+	if err := e.ClaimTeamWorkspace("discord:room:user", "ws1", "工作区1"); err != nil {
+		t.Fatal(err)
+	}
+	p.resolveWorkspace = e.resolveTaskWorkspace
+	p.resolveReporter = func(project, platformName, session string) (TaskCardPublisher, error) {
+		return nil, errors.New("unbound test reporter")
+	}
+	if _, err := p.AssignMember(taskWorkspaceAssignment(id, run, "m1", "ws1")); err == nil || !strings.Contains(err.Error(), "unbound test reporter") {
+		t.Fatalf("unbound workspace target = %v", err)
+	}
+	task, _ := p.Task(id)
+	if len(task.Members) != 0 {
+		t.Fatalf("rejected assignment created rows: %+v", task.Members)
+	}
+}
+
+// A task relay must reject a workspace that another chat owns, that was never
+// recorded, or that belongs to another platform, without running the target.
+func TestTaskRelayWorkspaceRejectsForeignAndUnrecorded(t *testing.T) {
+	for _, tc := range []struct{ name, workspace, want string }{
+		{"foreign", "ws2", "another chat channel"},
+		{"unrecorded", "ws9", "not a recorded workspace"},
+		{"other-platform", "feishu:ws2", "not on platform discord"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, platform, _, id := taskRelayFixture(t)
+			e := NewEngine("source", &stubAgent{}, []Platform{platform}, "", LangChinese)
+			e.SetDataDir(p.dataDir)
+			if err := e.ClaimTeamWorkspace("discord:other", "ws2", "工作区2"); err != nil {
+				t.Fatal(err)
+			}
+			var starts atomic.Int32
+			rm, _ := taskRelayManager(t, p, platform, nil, &starts)
+			source := rm.engines["source"]
+			source.dataDir = p.dataDir
+			p.resolveWorkspace = source.resolveTaskWorkspace
+			req := taskRelayRequest(id)
+			req.Workspace = tc.workspace
+			if _, err := rm.Send(context.Background(), req); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("workspace %s = %v, want %q", tc.workspace, err, tc.want)
+			}
+			if starts.Load() != 0 {
+				t.Fatal("rejected workspace started the target")
+			}
+			if _, ok := p.records[id].record.Relays[req.RequestID]; ok {
+				t.Fatal("rejected workspace left a receipt")
+			}
+		})
+	}
+}
+
+// A retry is resolved from its durable receipt even after the workspace goes
+// back to the pool and another chat claims it; a new dispatch cannot take the
+// moved workspace.
+func TestTaskRelayWorkspaceRetrySurvivesHandoffChange(t *testing.T) {
+	p, platform, _, id := taskRelayFixture(t)
+	e := NewEngine("source", &stubAgent{}, []Platform{platform}, "", LangChinese)
+	e.SetDataDir(p.dataDir)
+	if err := e.ClaimTeamWorkspace("discord:room:user", "ws1", "工作区1"); err != nil {
+		t.Fatal(err)
+	}
+	var starts atomic.Int32
+	rm, session := taskRelayManager(t, p, platform, nil, &starts)
+	source := rm.engines["source"]
+	source.dataDir = p.dataDir
+	p.resolveWorkspace = source.resolveTaskWorkspace
+	rm.Bind("discord", "ws1", map[string]string{"source": "Source", "target": "Target"})
+	session.events <- Event{Type: EventResult, Content: "handoff result"}
+
+	req := taskRelayRequest(id)
+	req.Workspace = "ws1"
+	result, err := rm.Send(context.Background(), req)
+	if err != nil || result.Response != "handoff result" {
+		t.Fatalf("relay = %+v, %v", result, err)
+	}
+	if !e.releaseTeamWorkspace("discord:ws1", time.Now().Add(time.Hour), false) {
+		t.Fatal("workspace was not released")
+	}
+	if err := e.ClaimTeamWorkspace("discord:other", "ws1", "工作区1"); err != nil {
+		t.Fatal(err)
+	}
+	if cached, err := rm.Send(context.Background(), req); err != nil || cached.Response != result.Response {
+		t.Fatalf("retry after handoff = %+v, %v", cached, err)
+	}
+	next := req
+	next.RequestID = "dispatch-two"
+	if _, err := rm.Send(context.Background(), next); err == nil || !strings.Contains(err.Error(), "another chat channel") {
+		t.Fatalf("new dispatch to moved workspace = %v", err)
+	}
+	conflict := req
+	conflict.Workspace = "ws2"
+	if _, err := rm.Send(context.Background(), conflict); err == nil || !strings.Contains(err.Error(), "already dispatched to workspace") {
+		t.Fatalf("conflicting target after handoff = %v", err)
+	}
+	if starts.Load() != 1 {
+		t.Fatalf("retry or moved dispatch reran target: %d starts", starts.Load())
+	}
+}
+
+// The member credential is delivered in the workspace relay prompt, accepted
+// only from the workspace, and the final result still lands on the source
+// task card.
+func TestTaskRelayWorkspaceMemberCredentialAndResult(t *testing.T) {
+	p, platform, run, id := taskRelayFixture(t)
+	e := NewEngine("source", &stubAgent{}, []Platform{platform}, "", LangChinese)
+	e.SetDataDir(p.dataDir)
+	if err := e.ClaimTeamWorkspace("discord:room:user", "ws1", "工作区1"); err != nil {
+		t.Fatal(err)
+	}
+	var starts atomic.Int32
+	memberTokenCh := make(chan string, 1)
+	rm, session := taskRelayManager(t, p, platform, func(prompt string) {
+		var token string
+		for _, line := range strings.Split(prompt, "\n") {
+			if !strings.Contains(line, "member m1") {
+				continue
+			}
+			fields := strings.Fields(line)
+			for i, f := range fields {
+				if f == "--run" && i+1 < len(fields) {
+					token = fields[i+1]
+				}
+			}
+		}
+		if token == "" {
+			t.Errorf("member credential missing from relay prompt")
+			return
+		}
+		memberTokenCh <- token
+		if _, err := p.Report(PublicProgressRequest{Project: "source", SessionKey: "discord:room:user", Run: token, Seq: 1, Kind: "result", Summary: "wrong chat"}); err == nil {
+			t.Error("member report from the source chat accepted")
+		}
+		if _, err := p.Report(PublicProgressRequest{Project: "source", SessionKey: "discord:ws1", Run: token, Seq: 1, Kind: "result", Summary: "member finished in workspace"}); err != nil {
+			t.Errorf("workspace member report: %v", err)
+		}
+	}, &starts)
+	source := rm.engines["source"]
+	source.dataDir = p.dataDir
+	p.resolveWorkspace = source.resolveTaskWorkspace
+	rm.Bind("discord", "ws1", map[string]string{"source": "Source", "target": "Target"})
+	grant, err := p.AssignMember(taskWorkspaceAssignment(id, run, "m1", "ws1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if grant.ReportCommand != "" {
+		t.Fatalf("workspace member credential leaked to the creator: %+v", grant)
+	}
+	session.events <- Event{Type: EventResult, Content: "workspace final result"}
+	req := taskRelayRequest(id)
+	req.Workspace = "ws1"
+	result, err := rm.Send(context.Background(), req)
+	if err != nil || result.Response != "workspace final result" {
+		t.Fatalf("relay = %+v, %v", result, err)
+	}
+	var token string
+	select {
+	case token = <-memberTokenCh:
+	default:
+		t.Fatal("member credential not delivered in the relay prompt")
+	}
+	task, _ := p.Task(id)
+	if len(task.Members) != 1 || task.Members[0].Status != "completed" || task.Members[0].Workspace != "discord:ws1" {
+		t.Fatalf("member row = %+v", task.Members)
+	}
+	var memberEvent, resultEvent bool
+	for _, ev := range task.Events {
+		if strings.Contains(ev.Detail, "member finished in workspace") {
+			memberEvent = true
+		}
+		if strings.Contains(ev.Detail, "workspace final result") {
+			resultEvent = true
+		}
+	}
+	if !memberEvent || !resultEvent {
+		t.Fatalf("member/result events missing: %+v", task.Events)
+	}
+	raw, err := os.ReadFile(filepath.Join(p.dir, id+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), token) {
+		t.Fatal("member credential persisted")
+	}
+	if starts.Load() != 1 {
+		t.Fatalf("workspace dispatch ran %d times", starts.Load())
+	}
+}
+
+// Concurrent delivery retries with one request id run the target once.
+func TestTaskRelayWorkspaceDuplicateDispatchRunsOnce(t *testing.T) {
+	p, platform, _, id := taskRelayFixture(t)
+	e := NewEngine("source", &stubAgent{}, []Platform{platform}, "", LangChinese)
+	e.SetDataDir(p.dataDir)
+	if err := e.ClaimTeamWorkspace("discord:room:user", "ws1", "工作区1"); err != nil {
+		t.Fatal(err)
+	}
+	var starts atomic.Int32
+	rm, session := taskRelayManager(t, p, platform, nil, &starts)
+	source := rm.engines["source"]
+	source.dataDir = p.dataDir
+	p.resolveWorkspace = source.resolveTaskWorkspace
+	rm.Bind("discord", "ws1", map[string]string{"source": "Source", "target": "Target"})
+	session.events <- Event{Type: EventResult, Content: "only result"}
+	req := taskRelayRequest(id)
+	req.Workspace = "ws1"
+
+	errs := make([]error, 4)
+	var wg sync.WaitGroup
+	for i := range errs {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, errs[i] = rm.Send(context.Background(), req)
+		}(i)
+	}
+	wg.Wait()
+	if starts.Load() != 1 {
+		t.Fatalf("duplicate dispatch ran target %d times", starts.Load())
+	}
+	success := false
+	for _, err := range errs {
+		if err == nil {
+			success = true
+			continue
+		}
+		if !strings.Contains(err.Error(), "is running") {
+			t.Fatalf("unexpected duplicate error: %v", err)
+		}
+	}
+	if !success {
+		t.Fatal("no duplicate dispatch returned the result")
 	}
 }
 
