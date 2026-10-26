@@ -1,0 +1,72 @@
+# Fork-only: fast checks for the QQ team-mode work (issue #344) on feat/344-* branches.
+# Not part of upstream. Failure output is folded into one error annotation per step so it
+# can be read from the check run without downloading logs.
+name: Fork QQ dev
+
+on:
+  push:
+    branches: ['feat/344-**']
+  workflow_dispatch:
+    inputs:
+      full:
+        description: also run the whole bridge suite
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-qq-dev-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: bridge
+
+jobs:
+  qq:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: bridge/go.mod
+          cache-dependency-path: bridge/go.sum
+
+      - name: annotate helper
+        run: |
+          cat > /tmp/run.sh <<'EOF'
+          #!/usr/bin/env bash
+          # run.sh <label> <cmd...>: runs cmd; on failure folds the useful lines into one annotation.
+          label=$1; shift
+          log=$(mktemp)
+          if "$@" >"$log" 2>&1; then tail -n 3 "$log"; exit 0; fi
+          cat "$log"
+          body=$(grep -E -e '--- FAIL|^FAIL|panic:|\.go:[0-9]+:|^\s+[a-z_]+_test\.go:[0-9]+:|DATA RACE|undefined|cannot use|declared and not used|imported and not used' "$log" | head -n 80)
+          [ -n "$body" ] || body=$(tail -n 60 "$log")
+          body=${body//'%'/'%25'}; body=${body//$'\r'/}; body=${body//$'\n'/'%0A'}
+          echo "::error title=${label}::${body}"
+          exit 1
+          EOF
+          chmod +x /tmp/run.sh
+
+      - name: gofmt
+        run: |
+          out=$(gofmt -l core platform/qq cmd 2>&1 || true)
+          if [ -n "$out" ]; then echo "::error title=gofmt::${out//$'\n'/'%0A'}"; exit 1; fi
+      - name: build + vet (linux, windows)
+        run: |
+          /tmp/run.sh "build linux" go build -tags no_web ./...
+          /tmp/run.sh "vet" go vet -tags no_web ./core ./platform/qq ./cmd/...
+          GOOS=windows GOARCH=amd64 /tmp/run.sh "build windows" go build -tags no_web ./...
+      - name: test platform/qq (race)
+        run: /tmp/run.sh "test qq" go test -race -tags no_web -count=1 ./platform/qq/
+      - name: test core (QQ-related + CUJ)
+        run: /tmp/run.sh "test core" go test -tags no_web -count=1 -run 'PlainPlatform|TeamWorkspace|Mention|LeadReturn|CUJ' ./core/
+      - name: full suite
+        if: ${{ inputs.full || contains(github.event.head_commit.message, '[full]') }}
+        run: /tmp/run.sh "full suite" go test -tags no_web -p 1 -count=1 ./...
