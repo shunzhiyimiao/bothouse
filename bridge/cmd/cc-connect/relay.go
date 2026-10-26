@@ -124,6 +124,9 @@ func relaySendCommand(args []string, out io.Writer) error {
 	if (taskID == "") != (requestID == "") {
 		return fmt.Errorf("--task and --request-id must be provided together")
 	}
+	if workspace != "" && taskID == "" {
+		return fmt.Errorf("--workspace requires --task and --request-id")
+	}
 
 	sockPath := resolveSocketPath(dataDir)
 	if _, err := os.Stat(sockPath); err != nil {

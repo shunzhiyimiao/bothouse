@@ -30,7 +30,8 @@ func (e *Engine) resolveTaskReporter(project, platform, session string) (TaskCar
 }
 
 // ResolveTaskReporter selects a real engine/platform, never a caller's display
-// name. Both bots must be registered and bound in the task's original channel.
+// name. Both bots must be registered and bound in the session that will receive
+// the task: the source chat, or an explicit execution workspace for a dispatch.
 func (rm *RelayManager) ResolveTaskReporter(source, project, platform, session string) (TaskCardPublisher, error) {
 	name, chat, err := parseSessionKeyParts(session)
 	if err != nil || name != platform {
