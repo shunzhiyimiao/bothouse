@@ -21,7 +21,7 @@ type TaskMember struct {
 	ParentID        string    `json:"parent_id,omitempty"`
 	Name            string    `json:"name"`
 	Title           string    `json:"title"`
-	Workspace       string    `json:"workspace,omitempty"` // execution workspace channel, "" = source chat
+	Workspace       string    `json:"workspace,omitempty"` // execution workspace channel, "" = source workspace
 	Status          string    `json:"status"`
 	Summary         string    `json:"summary,omitempty"`
 	AssignedAt      time.Time `json:"assigned_at"`
@@ -46,7 +46,7 @@ type TaskMemberAssignment struct {
 	Name            string `json:"name"`
 	Title           string `json:"title"`
 	// Workspace is the channel the member executes in; empty keeps the source
-	// chat. It must be a workspace of the source chat, recorded as its own.
+	// workspace. It must be another workspace of the source workspace's chat.
 	Workspace string `json:"workspace,omitempty"`
 	// Ref names the existing implementation the member should follow (path:line), or
 	// 「无（新建）」 for non-code work. Base is the branch to start from; required when the
@@ -107,7 +107,7 @@ type taskMemberRun struct {
 	r                *publicRun
 	id               string
 	assignment       TaskMemberAssignment
-	reportSessionKey string // workspace channel when the member executes there, else the source chat
+	reportSessionKey string // execution workspace when the member executes there, else the source session
 	token            string
 	reports          map[int64]string
 	lastSeq          int64
@@ -162,18 +162,19 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 	defer r.mu.Unlock()
 	// Normalize selectors so retrying by the returned id is also idempotent.
 	req.TaskID, req.BatchID = r.record.Task.ID, ""
-	// A member may execute in an explicit workspace of this chat; the source
-	// session and run stay the same, only the execution channel changes.
+	// A member may execute in another workspace of the same chat channel; the
+	// source workspace, card and run stay the same, only the execution channel
+	// changes. Canonicalize the selector first (no live checks) so a retry of a
+	// committed assignment matches its grant after the workspace changes hands
+	// or fills up; ownership and occupancy are checked below for new work only.
 	execSession := req.SessionKey
 	if req.Workspace != "" {
-		if p.resolveWorkspace == nil {
-			return nil, errors.New("workspace routing is not enabled")
-		}
-		ws, err := p.resolveWorkspace(req.SessionKey, req.Workspace)
+		platform, wsID, err := taskWorkspaceChannelKey(req.SessionKey, req.Workspace)
 		if err != nil {
 			return nil, fmt.Errorf("workspace: %w", err)
 		}
-		req.Workspace, execSession = ws, ws
+		req.Workspace = platform + ":" + wsID
+		execSession = req.Workspace
 	}
 	if req.ParentID != "" && memberIndex(r.record.Task, req.ParentID) < 0 {
 		return nil, errors.New("unknown parent member")
@@ -202,17 +203,6 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 	if req.ReporterProject == "" {
 		req.ReporterProject = p.project
 	}
-	if _, err := p.taskReporter(req.ReporterProject, r.record.Platform, execSession, r.publisher); err != nil {
-		// Unbound teammate: the command says what to do, and so does the channel (#587).
-		var nb *notBoundError
-		if errors.As(err, &nb) && p.notBound != nil {
-			p.notBound(execSession, nb.project, false)
-		}
-		return nil, err
-	}
-	if p.notBound != nil {
-		p.notBound(execSession, req.ReporterProject, true)
-	}
 	if memberIndex(r.record.Task, req.MemberID) >= 0 {
 		p.mu.Lock()
 		defer p.mu.Unlock()
@@ -222,6 +212,30 @@ func (p *PublicProgress) AssignMember(req TaskMemberAssignment) (*TaskMemberGran
 			}
 		}
 		return nil, errors.New("member id already used; use a new id for new work")
+	}
+	if req.Workspace != "" {
+		if p.resolveWorkspace == nil {
+			return nil, errors.New("workspace routing is not enabled")
+		}
+		if _, err := p.resolveWorkspace(req.SessionKey, req.Workspace); err != nil {
+			return nil, fmt.Errorf("workspace: %w", err)
+		}
+	}
+	// The member executes in execSession, but its facts are delivered on the
+	// source card (task.SessionKey): the bot must be bound in both channels, or
+	// its facts would degrade to a creator-posted "reporter muted" note.
+	for _, session := range taskReporterSessions(req.SessionKey, execSession) {
+		if _, err := p.taskReporter(req.ReporterProject, r.record.Platform, session, r.publisher); err != nil {
+			// Unbound teammate: the command says what to do, and so does the channel (#587).
+			var nb *notBoundError
+			if errors.As(err, &nb) && p.notBound != nil {
+				p.notBound(session, nb.project, false)
+			}
+			return nil, err
+		}
+		if p.notBound != nil {
+			p.notBound(session, req.ReporterProject, true)
+		}
 	}
 	old := r.record
 	old.Task = r.record.Task.Clone()

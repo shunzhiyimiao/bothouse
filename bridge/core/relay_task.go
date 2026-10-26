@@ -18,7 +18,7 @@ import (
 type taskRelayRecord struct {
 	Hash      string           `json:"hash"`
 	Target    string           `json:"target"`
-	Workspace string           `json:"workspace,omitempty"` // execution channel; empty = source chat
+	Workspace string           `json:"workspace,omitempty"` // execution workspace (sibling of the source workspace); empty = source
 	Status    string           `json:"status"`              // running, done, failed; running after restart is unresolved
 	Response  string           `json:"response,omitempty"`
 	Error     string           `json:"error,omitempty"`
@@ -201,12 +201,12 @@ func (p *PublicProgress) beginTaskRelay(req RelayRequest, name string) (*taskRel
 			return nil, nil, fmt.Errorf("relay: workspace: %w", err)
 		}
 	}
-	reporterSession := req.SessionKey
-	if req.Workspace != "" {
-		reporterSession = req.Workspace
-	}
-	if _, err := p.taskReporter(req.To, r.record.Platform, reporterSession, r.publisher); err != nil {
-		return nil, nil, fmt.Errorf("relay: reporter: %w", err)
+	// Bound in the source workspace (facts land on its card) and, when set, in
+	// the execution workspace (the target runs there).
+	for _, session := range taskReporterSessions(req.SessionKey, req.Workspace) {
+		if _, err := p.taskReporter(req.To, r.record.Platform, session, r.publisher); err != nil {
+			return nil, nil, fmt.Errorf("relay: reporter: %w", err)
+		}
 	}
 	old := snapshotTaskRelay(r)
 	now := time.Now().UTC()
