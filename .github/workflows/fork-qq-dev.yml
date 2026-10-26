@@ -32,6 +32,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+          fetch-depth: 200
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: bridge/go.mod
@@ -54,9 +55,13 @@ jobs:
           EOF
           chmod +x /tmp/run.sh
 
-      - name: gofmt
+      - name: gofmt (files this branch changed)
         run: |
-          out=$(gofmt -l core platform/qq cmd 2>&1 || true)
+          # upstream itself is not gofmt-clean, so only check what this branch touched
+          git fetch -q --depth=200 https://github.com/zuiho-kai/bothouse.git develop
+          changed=$(git diff --name-only --diff-filter=AM FETCH_HEAD...HEAD -- '*.go' | sed 's#^bridge/##')
+          [ -n "$changed" ] || exit 0
+          out=$(gofmt -l $changed 2>&1 || true)
           if [ -n "$out" ]; then echo "::error title=gofmt::${out//$'\n'/'%0A'}"; exit 1; fi
       - name: build + vet (linux, windows)
         run: |
