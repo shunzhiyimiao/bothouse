@@ -90,24 +90,27 @@ func TestTeam_LeadHandsOffAndTheAnswerComesBack(t *testing.T) {
 		t.Fatalf("hand-off reply context lead = %q, want 1", rc.lead)
 	}
 
-	sendAs(t, sub, rc, "开始跑了，先编译", false)
-	time.Sleep(100 * time.Millisecond)
-	if n := len(leadIn.snapshot()); n != 0 {
-		t.Fatalf("interim output woke the lead (%d messages)", n)
-	}
+	sendAs(t, sub, rc, "🔧 **工具 #1: Bash**\n---\ngo build ./...", false) // folded
+	sendAs(t, sub, rc, "开始跑了，先编译", false)                               // the sub's own text: sent, no @
 	sendAs(t, sub, rc, "测试全过（第一段）", true)
 	sendAs(t, sub, rc, "（第二段）", true)
-	waitFor(t, "both answer chunks at the lead", func() bool { return len(leadIn.snapshot()) == 2 })
+	waitFor(t, "three posts at the lead", func() bool { return len(leadIn.snapshot()) == 3 })
 	time.Sleep(100 * time.Millisecond)
 
-	// The first chunk @-s the lead and starts its check; the second reaches it as a teammate's
-	// context only (core never starts a turn from FromBot without Mentioned).
+	// Only the first answer chunk @-s the lead and starts its check; the interim text and the
+	// second chunk reach it as a teammate's context (core never starts a turn from FromBot
+	// without Mentioned). The tool line was folded, not posted.
 	back := leadIn.snapshot()
-	if len(back) != 2 || !back[0].FromBot || !back[0].Mentioned || !strings.Contains(back[0].Content, "测试全过") {
-		t.Fatalf("lead got %+v, want the first answer chunk as a teammate's @", back)
+	if len(back) != 3 {
+		t.Fatalf("lead got %d posts, want 3", len(back))
 	}
-	if !back[1].FromBot || back[1].Mentioned {
-		t.Fatalf("second chunk = %+v, want teammate context, not a call", back[1])
+	for i, want := range []bool{false, true, false} {
+		if !back[i].FromBot || back[i].Mentioned != want {
+			t.Fatalf("post %d = %+v, want FromBot with Mentioned=%v", i, back[i], want)
+		}
+	}
+	if !strings.Contains(back[0].Content, "开始跑了") || !strings.Contains(back[1].Content, "测试全过") {
+		t.Fatalf("lead got %q / %q", back[0].Content, back[1].Content)
 	}
 	posts = f.groupPosts(teamGroup)
 	last := posts[len(posts)-1]

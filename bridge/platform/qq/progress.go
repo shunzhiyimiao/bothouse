@@ -12,11 +12,12 @@ import (
 // Interim output on QQ (issue #344, step 5). QQ cannot edit a sent message, so core sends every
 // thinking line and tool call of a turn as a message of its own (core test
 // TestPlainPlatform_InterimAgentOutputIsMarkedButNotFinal); in a group that buries the answer.
-// With interim_messages = "digest" (default) those posts are folded into a rare progress line:
+// With interim_messages = "digest" (default) those step lines (isStepLine) are folded into a rare
+// progress line, while the agent's own text still goes out as it comes:
 // none for a turn that ends within progressFirst, then one per window, the window doubling up to
 // progressMaxGap, so an hour-long task posts about six. The turn's answer, or any notice that is
 // not agent output (an error, a status line), drops what was not posted yet.
-// "all" keeps the old one-message-per-step behaviour; "off" drops interim output.
+// "all" keeps the old one-message-per-step behaviour; "off" drops step lines.
 
 const (
 	interimDigest = "digest"
@@ -144,17 +145,37 @@ func elapsed(d time.Duration) string {
 	return fmt.Sprintf("%d 分钟", int(d.Minutes()))
 }
 
+// stepPrefixes open core's thinking, tool-call and tool-result lines in every language
+// (core/i18n.go MsgThinking, MsgTool, MsgToolResult).
+var stepPrefixes = []string{"💭", "🔧", "📤"}
+
+// isStepLine: content is a thinking or tool line, not the agent's own text. Only these are
+// folded. Interim text must still go out: when a turn's text all went out before its last tool
+// call, core sends no final answer (core/engine.go "only send the unsent remainder"), and
+// folding that text would lose the answer. Anything unrecognised is sent.
+func isStepLine(content string) bool {
+	s := strings.TrimSpace(content)
+	for _, pre := range stepPrefixes {
+		if strings.HasPrefix(s, pre) {
+			return true
+		}
+	}
+	return false
+}
+
 // interim decides what Send does with content: true = it was folded or dropped, do not send.
 func (p *Platform) interim(rc *replyContext, content string) bool {
 	switch {
 	case p.progress == nil || p.interimMode == interimAll:
 		return false
-	case rc.agent && !rc.final:
+	case rc.agent && !rc.final && isStepLine(content):
 		if p.interimMode == interimOff {
 			return true
 		}
 		p.progress.add(rc, content)
 		return true
+	case rc.agent && !rc.final:
+		return false // the agent's own text mid-turn: send it, the turn goes on
 	default:
 		p.progress.done(rc)
 		return false

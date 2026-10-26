@@ -47,6 +47,8 @@ jobs:
           log=$(mktemp)
           if "$@" >"$log" 2>&1; then tail -n 3 "$log"; exit 0; fi
           cat "$log"
+          names=$(grep -oE -e '--- FAIL: [A-Za-z0-9_/]+' -e '^FAIL\s+\S+' "$log" | sed 's/--- FAIL: //' | sort -u | tr '\n' ' ')
+          [ -z "$names" ] || echo "::error title=${label} failed tests::${names}"
           body=$(grep -E -e '--- FAIL|^FAIL|panic:|\.go:[0-9]+:|^\s+[a-z_]+_test\.go:[0-9]+:|DATA RACE|undefined|cannot use|declared and not used|imported and not used' "$log" | head -n 80)
           [ -n "$body" ] || body=$(tail -n 60 "$log")
           body=${body//'%'/'%25'}; body=${body//$'\r'/}; body=${body//$'\n'/'%0A'}

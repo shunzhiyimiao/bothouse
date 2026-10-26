@@ -77,6 +77,21 @@ func TestProgress_ShortTurnPostsOnlyTheAnswer(t *testing.T) {
 	}
 }
 
+// The agent's own text mid-turn is sent at once, never folded: when a turn's text all goes out
+// before its last tool call, core sends no final answer, so folding it would lose the answer.
+func TestProgress_AgentTextIsSentNotFolded(t *testing.T) {
+	f, lead, _, _, _ := startTeam(t, "9")
+	fastProgress(lead)
+	sendAs(t, lead, groupCtx(), "结论：主分支的构建是好的，问题在 CI 缓存。", false)
+	sendAs(t, lead, groupCtx(), "🔧 **工具 #1: Bash**\n---\ngit push", false)
+	posts := f.groupPosts(teamGroup)
+	if len(posts) == 0 || !strings.Contains(sentText(posts[len(posts)-1]), "问题在 CI 缓存") {
+		t.Fatalf("the agent's text was not sent at once")
+	}
+	// No final answer follows (core's "only the unsent remainder" path): the text is already out.
+	waitFor(t, "progress line for the tool call", func() bool { return len(progressPosts(f, teamGroup)) == 1 })
+}
+
 // A notice that is not agent output (an error, a status line) replaces pending progress.
 func TestProgress_NoticeDropsPendingProgress(t *testing.T) {
 	f, lead, _, _, _ := startTeam(t, "9")
