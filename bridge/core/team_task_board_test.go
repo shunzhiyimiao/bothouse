@@ -207,6 +207,7 @@ func TestTeamTaskBoardNextOverdue(t *testing.T) {
 func TestUpdateTeamBoardsPostsTaskBoard(t *testing.T) {
 	p := &stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "feishu"}}
 	e := NewEngine("lead", &stubAgent{}, []Platform{p}, "", LangChinese)
+	allChatsAreWorkspaces(e)
 	defer e.cancel()
 	dir := t.TempDir()
 	e.team = &teamState{dir: dir, board: true}
@@ -257,6 +258,7 @@ func TestTeamTaskBoardUnplacedMainChatOnly(t *testing.T) {
 func TestCloudWebSingleRoleBoardOnce(t *testing.T) {
 	p := &stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "cloud_web"}}
 	e := NewEngine("lead", &stubAgent{}, []Platform{p}, "", LangChinese)
+	allChatsAreWorkspaces(e)
 	defer e.cancel()
 	dir := t.TempDir()
 	e.team = &teamState{dir: dir, board: true}
@@ -296,7 +298,7 @@ func TestTeamBoardMembersLive(t *testing.T) {
 		{"idle", idle, nil, false},
 		{"done here", teamFile{Project: "a", Name: "橘", Sessions: []teamEntry{{Key: "cloud_web:room-1", Worked: true, DoneAt: now}}}, nil, false},
 		{"busy here", teamFile{Project: "a", Name: "橘", Sessions: []teamEntry{{Key: "cloud_web:room-1", Worked: true, Busy: true, Since: now}}}, nil, true},
-		{"busy elsewhere", teamFile{Project: "a", Name: "橘", Sessions: []teamEntry{{Key: "cloud_web:room-2", Worked: true, Busy: true, Since: now}}}, nil, true},
+		{"busy elsewhere", teamFile{Project: "a", Name: "橘", Sessions: []teamEntry{{Key: "cloud_web:room-2", Worked: true, Busy: true, Since: now}}}, nil, false}, // not busy here
 		{"task card running", idle, []teamTaskMember{{Name: "橘", Status: "running", UpdatedAt: now}}, true},
 		{"task card waiting", idle, []teamTaskMember{{Name: "橘", Status: "waiting", UpdatedAt: now}}, true},
 		{"task card completed", idle, []teamTaskMember{{Name: "橘", Status: "completed", UpdatedAt: now}}, false},
@@ -315,6 +317,7 @@ func TestTeamBoardMembersLive(t *testing.T) {
 func TestTeamBoardLiveFollowsWorkspaceHandoff(t *testing.T) {
 	p := &stubBoardPlatform{stubPlatformEngine: stubPlatformEngine{n: "cloud_web"}}
 	e := NewEngine("lead", &stubAgent{}, []Platform{p}, "", LangChinese)
+	allChatsAreWorkspaces(e)
 	defer e.cancel()
 	dataDir := t.TempDir()
 	e.SetDataDir(dataDir)

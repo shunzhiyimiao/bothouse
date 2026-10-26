@@ -246,7 +246,7 @@ test('cloud-web: register ack, routing, prefixes, no self-echo, reconnect replac
   assert.equal(hub.thinking.get(1).has('ju'), false, 'reconnect clears stale typing');
   assert.equal(hub.members.get('ju').online, true, 'replaced socket close does not mark offline');
   ju2.close(1000);
-  assert.equal(hub.members.get('ju').online, false);
+  assert.equal(hub.members.get('ju').online, false, 'disconnected bot remains in the member list offline');
 });
 
 test('cloud-web: a line-start name calls a non-primary role', async () => {
@@ -704,6 +704,7 @@ test('DSH member: the preset scope is released when Workspace creation fails', a
   await settle();
   assert.equal(dsh.ctx.agentPresets.released, 1);
   assert.match(hub.store.page(1, undefined, 1)[0].text, /no such directory/);
+  assert.match(hub.store.page(1, undefined, 1)[0].text, /频道 #general 的工作目录 \/w 无法打开/);
 });
 
 test('DSH member: the prompt always contains the trigger, however much is unread', async () => {
@@ -1226,12 +1227,87 @@ test('hub: a draft is shown but never fanned out; commit writes the full text an
   again.store.close();
 });
 
+test('CLI missing executable: existing directory keeps installation and login advice', async () => {
+  const hub = makeHub();
+  const dir = mkdtempSync(join(tmpdir(), 'cli-not-installed-'));
+  const dsh = fakeDsh();
+  const members = new DshMembers(hub, {
+    ctx: dsh.ctx, createUserMessage: m => m, workspacePath: dir, logger: quiet,
+    createCliMember: options => new CliMember({ ...options, env: { PATH: dir } }),
+  }, [{ id: 'cc', name: 'CC', cli: 'gemini' }]);
+  try {
+    hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '@CC inspect directory' });
+    for (let i = 0; i < 100 && !hub.members.get('cc').error; i++) await tick();
+    const error = hub.members.get('cc').error ?? '';
+    assert.match(error, /请检查安装和登录状态/);
+    assert.ok(hub.store.page(1, undefined, 20).some(m =>
+      m.author_kind === 'system' && m.text.includes('请检查安装和登录状态')));
+  } finally { await members.close(); hub.store.close(); }
+});
+
+test('CLI directory error: real spawn failure reports channel, cwd and cause without creating a session', async () => {
+  const hub = makeHub();
+  const dir = mkdtempSync(join(tmpdir(), 'cli-directory-'));
+  const missing = join(dir, 'does-not-exist');
+  const dsh = fakeDsh();
+  let cli;
+  const members = new DshMembers(hub, {
+    ctx: dsh.ctx, createUserMessage: m => m, workspacePath: missing, logger: quiet,
+    createCliMember: options => (cli = new CliMember(options)),
+  }, [{ id: 'cc', name: 'CC', cli: 'gemini' }]);
+  try {
+    hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '@CC inspect directory' });
+    for (let i = 0; i < 100 && !hub.members.get('cc').error; i++) await tick();
+    const error = hub.members.get('cc').error ?? '';
+    assert.ok(error.includes('#general'), error);
+    assert.ok(error.includes(missing), error);
+    assert.match(error, /ENOENT/, 'underlying spawn error is preserved');
+    const notice = hub.store.page(1, undefined, 20).find(m => m.author_kind === 'system' && m.text.includes(missing));
+    assert.ok(notice, 'the channel receives the same directory diagnostic');
+    assert.equal(cli.cwd, missing, 'no fallback directory is selected');
+    assert.equal(cli.sessions.size, 0);
+    assert.equal(cli.saved.size, 0);
+    assert.equal(dsh.ctx.agents.created.length, 0);
+    assert.match(hub.store.binding('cc', 1).session_id, /^cli:/, 'no ACP session id was bound');
+  } finally { await members.close(); hub.store.close(); }
+});
+
 function cliMembers(hub, ask) {
   const dsh = fakeDsh();
   const agent = { ask, close() {} };
   return new DshMembers(hub, { ctx: dsh.ctx, createUserMessage: m => m, createCliMember: () => agent, workspacePath: '/w', logger: quiet },
     [{ id: 'cc', name: 'CC', cli: 'claude' }, { id: 'ds', name: 'DeepSeek' }]);
 }
+
+test('CLI directory errors add one channel prefix without mutating a reused cause', async () => {
+  const hub = makeHub();
+  const cause = Object.assign(new Error('CLI gemini cannot start: ENOENT'), {
+    code: 'COLLAB_CLI_START', cwd: '/missing', cli: 'gemini',
+  });
+  const members = cliMembers(hub, async () => { throw cause; });
+  const errors = [];
+  const runCli = members.runCli.bind(members);
+  members.runCli = async (...args) => {
+    try { return await runCli(...args); }
+    catch (error) { errors.push(error); throw error; }
+  };
+  try {
+    for (const text of ['@CC first try', '@CC second try']) {
+      hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text });
+      await settle();
+      assert.equal(hub.members.get('cc').error.match(/频道 #general/g)?.length, 1);
+    }
+    assert.equal(errors.length, 2);
+    for (const error of errors) {
+      assert.notEqual(error, cause);
+      assert.equal(error.cause, cause);
+      assert.equal(error.code, cause.code);
+      assert.equal(error.cwd, cause.cwd);
+      assert.equal(error.cli, cause.cli);
+    }
+    assert.equal(cause.message, 'CLI gemini cannot start: ENOENT');
+  } finally { await members.close(); hub.store.close(); }
+});
 
 test('CLI member streams: first chunk opens a draft, later chunks edit it, the reply commits the same row and hands off', async () => {
   const hub = makeHub();
@@ -1406,6 +1482,25 @@ test('interrupted streams leave no draft: cloud-web disconnect/reconnect and a C
   await settle();
   assert.equal(hub.store.job(job.id).state, 'interrupted');
   assert.deepEqual(live(), [], 'the interrupted CLI job drops its streamed draft');
+});
+
+test('store shutdown: live drafts remain queryable and late disconnect cleanup is safe', () => {
+  const hub = makeHub();
+  const gateway = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const bot = connect(gateway, 'bot=shutdown&name=Shutdown');
+  hub.draft(1, { authorKind: 'role', author: 'shutdown', name: 'Shutdown', text: 'partial', clientKey: 'shutdown-draft' });
+  assert.equal(hub.store.drafts('role', 'shutdown').length, 1);
+  hub.dropDrafts('role', 'shutdown');
+  assert.deepEqual(hub.store.drafts('role', 'shutdown'), []);
+  // Older Node versions expose close() without the isOpen property.
+  hub.store.db = { close: hub.store.db.close.bind(hub.store.db) };
+  hub.store.close();
+  assert.doesNotThrow(() => hub.store.close());
+  assert.deepEqual(hub.store.drafts('role', 'shutdown'), []);
+  assert.doesNotThrow(() => hub.dropDrafts('role', 'shutdown'));
+  assert.doesNotThrow(() => bot.close(1001, 'server shutdown'));
+  assert.throws(() => hub.store.page(1, undefined, 10), /closed|finalized/i,
+    'ordinary queries after shutdown still report lifecycle errors');
 });
 
 test('cloud-web #120: permission prompt → button → card_action → card state; duplicates, expiry, offline', async () => {
@@ -4804,6 +4899,114 @@ test('G37: the lead\'s [report] in a workspace hands back its task and its @ sti
   assert.equal(tasks.task(sub.id).title, '请你核对 README', 'the title is content, not the stance line or the mark');
 });
 
+// #597 r12 (K10 r12 msg 41): after 副's task was accepted, the lead's 「副，返工完成得很好！…」 opened task #2.
+// Structure, not wording: once her newest task here is handed back or accepted, a bare name opens a
+// task only when her next message here opens with a stance line; an explicit @ opens one at once.
+const R12_REPORT = '副，返工完成得很好！\n\n幂运算功能已验收通过：\n- pow 函数实现正确，支持正数、负数和浮点数运算\n- 测试覆盖完整（27个用例全过）\n- README 文档已更新\n\n做得不错，继续保持。\n\n——主·松针';
+const r12Run = async (state, text, reply, { wait = 0 } = {}) => {
+  const g = g34Setup();
+  const { tasks, ws, clock, assign, say } = g;
+  const t = assign();
+  say(ws.id, '@主 [report]\n已完成');
+  await settle();
+  assert.equal(tasks.task(t.id).status, 'returned');
+  if (state === 'done') tasks.review(t.id, { actor: 'zhu', verdict: 'done' });
+  say(ws.id, text, 'zhu');
+  await settle();
+  const before = tasks.list(ws.id).filter(r => r.owner === 'fu' && r.id !== t.id);
+  clock.t += wait;
+  if (reply !== undefined) say(ws.id, reply);
+  await settle();
+  const opened = tasks.list(ws.id).filter(r => r.owner === 'fu' && r.id !== t.id);
+  return { ...g, t, before, opened };
+};
+for (const state of ['returned', 'done']) {
+  test(`r12 (${state}): a bare-name call answered with thanks opens no task`, async () => {
+    for (const text of [R12_REPORT, '副，修复了除零报错，未发现问题']) {
+      const { before, opened } = await r12Run(state, text, '谢谢');
+      assert.equal(before.length, 0, `nothing opens on the call: ${text}`);
+      assert.equal(opened.length, 0, `nothing opens on thanks: ${text}`);
+    }
+  });
+
+  test(`r12 (${state}): a bare-name send-back answered 【接】 opens an accepted task with its watch`, async () => {
+    const { before, opened, clock, tasks } = await r12Run(state, '副，第 2 条没改', '【接】马上改');
+    assert.equal(before.length, 0, 'the call alone waits for her stance');
+    assert.equal(opened.length, 1);
+    const row = tasks.task(opened[0].id);
+    assert.equal(row.status, 'accepted');
+    assert.equal(row.title, '副，第 2 条没改');
+    assert.equal(row.source, 'mention');
+    assert.equal(row.next_check_at, clock.t + CHECK_AFTER_S, 'the 10-minute watch runs from the call');
+  });
+
+  test(`r12 (${state}): 【问】 opens the task as asked`, async () => {
+    const { opened, tasks } = await r12Run(state, '副，第 2 条没改', '【问】哪一条？');
+    assert.equal(opened.length, 1);
+    assert.equal(tasks.task(opened[0].id).status, 'asked');
+  });
+
+  test(`r12 (${state}): an explicit @ opens a task at once`, async () => {
+    const { before } = await r12Run(state, '@副 把 sqrt 加上');
+    assert.equal(before.length, 1);
+    assert.equal(before[0].title, '把 sqrt 加上');
+  });
+
+  test(`r12 (${state}): a 【接】 more than 30 minutes after the call opens nothing`, async () => {
+    const { opened } = await r12Run(state, '副，第 2 条没改', '【接】马上改', { wait: 30 * 60 + 1 });
+    assert.equal(opened.length, 0);
+  });
+}
+
+test('r12: a mention task the praise auto-accepts: thanks opens nothing, an @ still dispatches', async () => {
+  const { tasks, say } = g34Setup();
+  say(1, '副，把 README 改一下', 'zhu');
+  await settle();
+  const [first] = tasks.list(1).filter(r => r.owner === 'fu');
+  assert.equal(tasks.task(first.id).source, 'mention');
+  say(1, '@主 改好了');
+  await settle();
+  assert.equal(tasks.task(first.id).status, 'returned');
+  say(1, R12_REPORT, 'zhu');
+  await settle();
+  assert.equal(tasks.task(first.id).status, 'done', 'the lead\'s next message accepts it');
+  say(1, '谢谢');
+  await settle();
+  assert.equal(tasks.list(1).filter(r => r.owner === 'fu').length, 1, 'praise and thanks open nothing');
+  say(1, '@主 不客气');
+  await settle();
+  say(1, '@副 把 sqrt 加上', 'zhu');
+  await settle();
+  assert.equal(tasks.list(1).filter(r => r.owner === 'fu').length, 2);
+});
+
+test('r12: 【返工】#id sends the handed-back task to rework and restarts its watch; no new task', async () => {
+  const { tasks, clock, ws, assign, say } = g34Setup();
+  const t = assign();
+  say(ws.id, '@主 [report]\n已完成');
+  await settle();
+  assert.equal(tasks.task(t.id).status, 'returned');
+  const t0 = clock.t = Math.ceil(Date.now() / 1000) + 100;
+  say(1, `【返工】#${t.id} 第 2 条没改`, 'zhu');
+  await settle();
+  const row = tasks.task(t.id);
+  assert.equal(row.status, 'rework');
+  assert.equal(row.note, '第 2 条没改');
+  assert.equal(row.next_check_at, t0 + CHECK_AFTER_S, 'the watch starts again from the send-back');
+  assert.equal(row.renewals, 0);
+  assert.equal(tasks.list(ws.id).filter(r => r.owner === 'fu').length, 1, 'the same task, no new one');
+});
+
+test('r12: a first call 「副，把 README 改一下」 dispatches as before', async () => {
+  const { tasks, ws, say } = g34Setup();
+  say(ws.id, '副，把 README 改一下', 'zhu');
+  await settle();
+  const first = tasks.list(ws.id).find(r => r.owner === 'fu');
+  assert.ok(first, 'a first call dispatches');
+  assert.equal(tasks.task(first.id).title, '副，把 README 改一下');
+  assert.equal(tasks.task(first.id).source, 'mention');
+});
+
 test('G37: an [ask] answer reaches the workspace @-ing the member by name, not by id', async () => {
   const { hub, tasks, ws, assign } = g34Setup();
   const t = assign();
@@ -4827,4 +5030,180 @@ test('G37: an [ask] answer reaches the workspace @-ing the member by name, not b
   hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '不改', replyTo: fwd2.id });
   await settle();
   assert.ok(hub.store.page(ws.id, undefined, 50).some(m => /^@gone 用户回复 ask-/.test(m.text)), 'a member no longer there falls back to its id');
+});
+
+test('channel directories: native sessions inherit the current parent and default remains unchanged', async () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(1, 'general', '/channel-a');
+  hub.store.ensureRoom(2, 'other', '/channel-b');
+  hub.store.ensureRoom(3, 'legacy');
+  const workspace = hub.store.createWorkspace(1);
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, []);
+  const member = { id: 'ds', name: 'DS' };
+  for (const id of [1, 2, workspace.id, 3]) await members.ensureAgent(member, hub.store.room(id));
+  assert.deepEqual(dsh.ctx.agents.created.map(c => c.meta.cwd), ['/channel-a', '/channel-b', '/channel-a', '/w']);
+  hub.store.ensureRoom(1, 'general', '/changed');
+  assert.equal(hub.store.workspacePath(workspace.id, '/w'), '/changed');
+  hub.store.ensureRoom(1, 'general', '');
+  assert.equal(hub.store.workspacePath(workspace.id, '/w'), '/w');
+  await members.close(); hub.store.close();
+});
+
+test('channel directories: CLI processes use separate directories and all close on member removal', async () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(1, 'general', '/channel-a');
+  hub.store.ensureRoom(2, 'other', '/channel-b');
+  const members = cliMembers(hub, async () => 'done');
+  const created = []; const closed = [];
+  members.rt.createCliMember = ({ cwd }) => {
+    created.push(cwd);
+    return { ask: async () => 'done', close() { closed.push(cwd); } };
+  };
+  for (const id of [1, 2, 1]) {
+    hub.post(id, { authorKind: 'user', author: 'owner', name: 'Owner', text: '@CC work' });
+    await settle();
+  }
+  assert.deepEqual(created, ['/channel-a', '/channel-b']);
+  members.dropCli('cc');
+  assert.deepEqual(closed, ['/channel-a', '/channel-b']);
+  await members.close(); hub.store.close();
+});
+
+test('channel directories: configuration rejects relative paths and accepts empty overrides', () => {
+  const base = { dataDir: '/d', workspacePath: '/w' };
+  for (const workspacePath of [null, '', '/channel']) {
+    assert.doesNotThrow(() => resolveConfig({ ...base, rooms: [{ id: 1, name: 'general', workspacePath }] }));
+  }
+  for (const workspacePath of ['relative', 42, {}]) {
+    assert.throws(() => resolveConfig({ ...base, rooms: [{ id: 1, name: 'general', workspacePath }] }), /workspacePath/);
+  }
+});
+
+
+test('channel directories: a released workspace uses its next owner directory and new native session', async () => {
+  const hub = makeHub();
+  hub.store.ensureRoom(1, 'first', '/first');
+  hub.store.ensureRoom(2, 'second', '/second');
+  const workspace = hub.store.createWorkspace(1);
+  const dsh = fakeDsh(); const members = dsh.attach(hub, []);
+  const member = { id: 'ds', name: 'DS' };
+  await members.ensureAgent(member, hub.store.room(workspace.id));
+  assert.equal(hub.store.releaseWorkspace(workspace.id), true);
+  const reused = hub.store.createWorkspace(2);
+  assert.equal(reused.id, workspace.id);
+  assert.equal(hub.store.workspacePath(reused.id, '/w'), '/second');
+  await members.ensureAgent(member, hub.store.room(reused.id));
+  assert.deepEqual(dsh.ctx.agents.created.map(c => c.meta.cwd), ['/first', '/second']);
+  await members.close(); hub.store.close();
+});
+
+
+test('member room scope: rename and reload retain scope, workspaces follow the parent, legacy stays global', async () => {
+  const hub = makeHub(); hub.store.ensureRoom(2, 'office');
+  const dsh = fakeDsh(); const members = dsh.attach(hub, []);
+  const roster = new Roster(hub, members);
+  const a = await roster.create({ name: 'Shared', rooms: [1] });
+  const b = await roster.create({ name: 'Shared', rooms: [2] });
+  const global = await roster.create({ name: 'Global' });
+  await roster.update(a.id, { name: 'Renamed' });
+  assert.deepEqual(JSON.parse(hub.store.member(a.id).rooms), [1]);
+  roster.load([]);
+  assert.deepEqual(hub.routableIn(1).map(m => m.id).sort(), [a.id, global.id].sort());
+  assert.deepEqual(hub.routableIn(2).map(m => m.id).sort(), [b.id, global.id].sort());
+  const workspace = hub.store.createWorkspace(2);
+  assert.deepEqual(hub.routableIn(workspace.id).map(m => m.id).sort(), [b.id, global.id].sort());
+  await assert.rejects(roster.create({ name: 'Shared', rooms: [2] }), /already used/);
+  await assert.rejects(roster.create({ name: 'Bad', rooms: [999] }), /existing chat/);
+  await members.close(); hub.store.close();
+});
+
+
+test('channel routing: same names route within the current channel and status follows parent', async () => {
+  const hub = makeHub(); hub.store.ensureRoom(2, 'office');
+  const dsh = fakeDsh();
+  const members = dsh.attach(hub, [{ id: 'a', name: 'Same', rooms: [1] }, { id: 'b', name: 'Same', rooms: [2] }]);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '@Same work' });
+  await settle();
+  assert.deepEqual(hub.store.openJobs().map(j => j.member_id), ['a']);
+  assert.deepEqual([...mentions('@Same', hub.routableIn(2))], ['b']);
+  assert.deepEqual(hub.membersInRoom(1).filter(m => m.kind !== 'human').map(m => m.id), ['a']);
+  const workspace = hub.store.createWorkspace(2);
+  const status = memberStatus(hub, undefined, workspace.id);
+  assert.match(status, /Same \(b\)/); assert.doesNotMatch(status, /Same \(a\)/);
+  await members.close(); hub.store.close();
+});
+
+test('channel bots: same-channel name overlaps are refused, cross-channel names coexist, disconnect marks offline', async () => {
+  const hub = makeHub(); hub.store.ensureRoom(2, 'office');
+  hub.setMember({ id: 'agent', name: 'Shared', kind: 'dsh', rooms: [1] });
+  const gateway = new CloudWebGateway(hub, { token: 't', logger: quiet });
+  const refused = connect(gateway, 'bot=bad&name=Shared&room=1');
+  assert.equal(refused.of('register_ack')[0].ok, false);
+  const office = connect(gateway, 'bot=office&name=Shared&room=2');
+  assert.equal(office.of('register_ack')[0].ok, true);
+  const game = connect(gateway, 'bot=game&name=QQ&room=1');
+  const officeQQ = connect(gateway, 'bot=officeqq&name=QQ&room=2');
+  assert.equal(game.of('register_ack')[0].ok, true);
+  assert.equal(officeQQ.of('register_ack')[0].ok, true);
+  hub.post(1, { authorKind: 'user', author: 'owner', name: 'Owner', text: '@QQ hello' });
+  await tick();
+  assert.equal(game.of('message').length, 1);
+  assert.equal(officeQQ.of('message').length, 0);
+  assert.equal(office.of('message').length, 0);
+  officeQQ.close(1000);
+  assert.equal(hub.members.get('officeqq').online, false);
+  assert.deepEqual(hub.members.get('officeqq').rooms, [2], 'disconnect retains channel membership');
+  gateway.closeAll(); hub.store.close();
+});
+
+
+test('member scope migration: legacy members and primary stay visible in future channels', async () => {
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join, dirname } = await import('node:path');
+  const path = join(mkdtempSync(join(tmpdir(), 'member-snapshot-')), 'collab.sqlite3');
+  let store = new Store(path);
+  store.ensureRoom(1, 'general'); store.ensureRoom(2, 'office');
+  store.createWorkspace(1);
+  store.addMember({ id: 'old', name: 'Old' });
+  store.db.prepare('UPDATE members SET rooms = NULL WHERE id = ?').run('old');
+  store.addMember({ id: 'scoped', name: 'Scoped', rooms: [2] });
+  store.addMember({ id: 'explicit-global', name: 'ExplicitGlobal', rooms: [] });
+  store.seedMember({ id: 'config', name: 'Configured' });
+  assert.equal(store.migrateMemberRooms(), true);
+  assert.deepEqual(JSON.parse(store.member('old').rooms), []);
+  assert.deepEqual(JSON.parse(store.member('scoped').rooms), [2]);
+  assert.deepEqual(JSON.parse(store.member('explicit-global').rooms), []);
+  assert.deepEqual(JSON.parse(store.member('config').rooms), []);
+  const third = store.createRoom('fresh');
+  store.close(); store = new Store(path);
+  assert.equal(store.migrateMemberRooms(), false);
+  assert.deepEqual(JSON.parse(store.member('old').rooms), []);
+  const leadState = new LeadState(join(dirname(path), 'lead.json'), quiet);
+  leadState.set('old', 'Old');
+  const hub = new Hub(store, quiet, leadState);
+  hub.setMember({ id: 'owner', name: 'Owner', kind: 'human', online: true });
+  const dsh = fakeDsh(); const members = dsh.attach(hub, []);
+  const roster = new Roster(hub, members); roster.load([]);
+  assert.deepEqual(hub.routableIn(third.id).map(m => m.id).sort(), ['config', 'explicit-global', 'old']);
+  assert.equal(hub.membersInRoom(third.id).some(m => m.id === 'old'), true);
+  assert.equal(hub.selectedPrimaryMember().id, 'old');
+  hub.post(third.id, { authorKind: 'user', author: 'owner', name: 'Owner', text: 'hello in the new channel' });
+  await settle();
+  assert.equal(store.openJobs().at(-1).member_id, 'old');
+  assert.equal(store.openJobs().at(-1).room_id, third.id);
+  for (const id of [1, 2]) assert.equal(hub.membersInRoom(id).some(m => m.id === 'old'), true);
+  await members.close(); store.close();
+});
+
+test('member scope migration: legacy scope is global even before any channels exist', () => {
+  const store = new Store(':memory:');
+  assert.equal(store.migrateMemberRooms(), false);
+  store.addMember({ id: 'old', name: 'Old' });
+  store.db.prepare('UPDATE members SET rooms = NULL WHERE id = ?').run('old');
+  assert.equal(store.migrateMemberRooms(), true);
+  assert.deepEqual(JSON.parse(store.member('old').rooms), []);
+  assert.equal(store.migrateMemberRooms(), false);
+  store.close();
 });
