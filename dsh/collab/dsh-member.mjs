@@ -148,6 +148,7 @@ export function describeReason(reason) {
 const INTERRUPTED = Symbol('interrupted');
 
 export function friendlyFailure(raw) {
+  if (raw?.code === 'COLLAB_CLI_START') return raw.message;
   const text = String(raw);
   if (/no.{0,12}(api.?key|key)|missing.{0,12}(key|credential)|api.?key.{0,12}(missing|not set|required)|未配置.*key/i.test(text)) return '还没有配置模型的 API Key，请先去配置模型。';
   if (/model.{0,30}(not found|unavailable|not available|unsupported)|unknown model|模型.*不可用|404/i.test(text)) return '这个模型暂时不可用，请检查模型名称或换一个模型。';
@@ -501,7 +502,7 @@ export class DshMembers {
     const key = `${job.member_id}\u0000${job.room_id}`;
     const tail = (this.queues.get(key) ?? Promise.resolve()).then(() => (this.closed ? undefined : task())).catch((error) => {
       this.rt.logger.warn('collab: DSH job %d failed: %s', job.id, error?.stack ?? error);
-      if (!this.closed) this.fail(job.id, `出错了：${error?.message ?? error}`);
+      if (!this.closed) this.fail(job.id, error?.code === 'COLLAB_CLI_START' ? error : `出错了：${error?.message ?? error}`);
     });
     this.queues.set(key, tail);
     return tail;
@@ -650,6 +651,13 @@ export class DshMembers {
       const message = committed ?? this.hub.post(job.room_id, { authorKind: 'role', author: member.id, name: member.name, clientKey, text: reply }).message;
       done = true;
       this.store.finishJob(job.id, 'done', message.id);
+    } catch (error) {
+      if (error?.code === 'COLLAB_CLI_START') {
+        throw Object.assign(new Error(`频道 #${room.name} ${error.message}`, { cause: error }), {
+          code: error.code, cwd: error.cwd, cli: error.cli,
+        });
+      }
+      throw error;
     } finally {
       turnOver.abort();
       latest = '';
