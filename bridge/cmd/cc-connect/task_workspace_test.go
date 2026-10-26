@@ -45,6 +45,12 @@ func TestTaskWsCLI(t *testing.T) {
 	if err := source.ClaimTeamWorkspace("test:room", "ws1", "工作区1"); err != nil {
 		t.Fatal(err)
 	}
+	// #453 only opens task cards in workspace channels: keep test:room as the
+	// source chat that owns ws1, and record it as a workspace of a synthetic
+	// outer chat so the source card is allowed.
+	if err := source.ClaimTeamWorkspace("test:outer", "room", "工作区2"); err != nil {
+		t.Fatal(err)
+	}
 
 	api, err := core.NewAPIServer(dir)
 	if err != nil {

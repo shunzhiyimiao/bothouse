@@ -71,6 +71,10 @@ func TestQuietCLI(t *testing.T) {
 	source := core.NewEngine("source", &progressCLIAgent{session: sourceSession}, []core.Platform{p}, "", core.LangChinese)
 	target := core.NewEngine("target", &progressCLIAgent{session: targetSession}, []core.Platform{p}, "", core.LangChinese)
 	source.SetDataDir(dir)
+	// Task cards are only created in workspace channels (#453); make test:room one.
+	if err := source.ClaimTeamWorkspace("test:chat", "room", "工作区1"); err != nil {
+		t.Fatal(err)
+	}
 	if err := source.EnablePublicProgress(); err != nil {
 		t.Fatal(err)
 	}
