@@ -190,6 +190,25 @@ func TestReconstructReplyCtx_TeamGroupKey(t *testing.T) {
 	}
 }
 
+// A group made after start (a new workspace) must not stall the account: its first message is
+// handled on readLoop, which also reads API answers, so looking its name up there waited out the
+// 15s API timeout.
+func TestTeam_FirstMessageInANewGroupIsNotStalled(t *testing.T) {
+	f, lead, _, leadIn, _ := startTeam(t, "9")
+	waitFor(t, "group list loaded", func() bool { return lead.knownGroup("500") })
+	f.group(800, "工作区3", leadQQ, subQQ, personQQ)
+	start := time.Now()
+	f.say(800, personQQ, "Li", at(leadQQ), text(" 在吗"))
+	waitFor(t, "message in the new group", func() bool { return len(leadIn.snapshot()) == 1 })
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("first message in a new group took %v", d)
+	}
+	waitFor(t, "group name resolvable", func() bool {
+		name, err := lead.ResolveChannelName("800")
+		return err == nil && name == "工作区3"
+	})
+}
+
 func TestReadGroupText_OwnMentionDroppedOrLabelled(t *testing.T) {
 	_, lead, _, _, _ := startTeam(t, "9")
 	only := lead.readGroupText(map[string]any{"message": []any{at(leadQQ), text(" 看下日志")}})

@@ -277,7 +277,7 @@ func (p *Platform) handleMessage(payload map[string]any) {
 
 	var chatName string
 	if msgType == "group" {
-		chatName = p.resolveGroupName(groupID)
+		chatName = p.cachedGroupName(groupID) // not resolveGroupName: see cachedGroupName
 	}
 
 	msg := &core.Message{

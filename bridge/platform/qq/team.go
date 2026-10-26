@@ -36,6 +36,7 @@ type teamState struct {
 	openWarn     sync.Once
 	leadReturned sync.Map // "<group>:<message>" → time: the first final chunk @-ed the lead
 	groups       sync.Map // group ID string → struct{}: groups this account is in or heard from
+	nameLookups  sync.Map // group ID string → struct{}: a background name lookup is running
 }
 
 const leadReturnTTL = 24 * time.Hour
@@ -255,7 +256,7 @@ func (p *Platform) handleTeamGroup(payload map[string]any, userID, groupID, mess
 		MessageID:  strconv.FormatInt(messageID, 10),
 		UserID:     strconv.FormatInt(userID, 10),
 		UserName:   userName,
-		ChatName:   p.resolveGroupName(groupID),
+		ChatName:   p.cachedGroupName(groupID),
 		Content:    content,
 		Images:     images,
 		Files:      files,
@@ -266,6 +267,23 @@ func (p *Platform) handleTeamGroup(payload map[string]any, userID, groupID, mess
 	}
 	slog.Debug("qq: team message", "group", groupID, "from_bot", fromBot, "mentioned", mentioned, "lead", rctx.lead)
 	p.handler(p, msg)
+}
+
+// cachedGroupName never calls the API: this runs on readLoop, which is also what reads the API's
+// answer, so resolveGroupName here would wait out its 15s timeout on a group not seen before
+// (a workspace group the user just made). An unknown name is fetched in the background.
+func (p *Platform) cachedGroupName(groupID int64) string {
+	key := strconv.FormatInt(groupID, 10)
+	if name, ok := p.groupNameCache.Load(key); ok {
+		return name.(string)
+	}
+	if _, busy := p.team.nameLookups.LoadOrStore(key, struct{}{}); !busy {
+		go func() {
+			defer p.team.nameLookups.Delete(key)
+			p.resolveGroupName(groupID)
+		}()
+	}
+	return key
 }
 
 // dispatchedBy is the lead whose hand-off this turn answers ("" = none): the lead @-ing this

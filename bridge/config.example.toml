@@ -1779,6 +1779,16 @@ app_secret = "your-feishu-app-secret"
 # allow_from = "*"                 # allowed QQ user IDs, e.g. "12345,67890" or "*" for all
 #                                  # 允许的 QQ 号，如 "12345,67890"，"*" 表示所有
 # share_session_in_channel = false  # If true, all users in a group share one agent session / 群聊共享会话
+# team_lead_bot = "10001"          # team mode: QQ number of the primary role. Every role is its own QQ account
+#                                  # (one NapCat each) and project in this cc-connect; they share a group.
+#                                  # People @ or name the role they want; "@<nickname>" in a role's output is
+#                                  # a real @; a teammate's answer @-s the lead. allow_from must list people:
+#                                  # open ("" or "*") is refused in team mode. Workspaces are groups you make,
+#                                  # named 工作区 / 工作区2 …, with every role's account in them (bots cannot create groups).
+#                                  # 团队模式：主角色的 QQ 号。每个角色一个 QQ 号（各一个 NapCat）、一个项目，同在一个群；
+#                                  # 人 @ 或点名要找的角色；allow_from 必须列出人的 QQ 号；工作区群需手动建好并拉入所有角色。
+# interim_messages = "digest"      # thinking/tool lines: "digest" (default: a rare progress line), "all" (one message
+#                                  # per step, the old behaviour), "off". 过程消息：digest 合并成少量进度 / all 逐条 / off 不发
 
 # QQ Bot (Official / 官方 QQ 机器人) (uncomment to enable / 取消注释以启用)
 # Uses the official QQ Bot Platform API — no third-party adapter needed.
