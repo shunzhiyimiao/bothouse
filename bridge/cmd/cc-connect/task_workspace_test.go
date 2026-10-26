@@ -42,13 +42,13 @@ func TestTaskWsCLI(t *testing.T) {
 	rm.Bind("test", "ws1", map[string]string{"fish": "Fish", "worker": "Worker"})
 	source.SetRelayManager(rm)
 	target.SetRelayManager(rm)
-	if err := source.ClaimTeamWorkspace("test:room", "ws1", "工作区1"); err != nil {
+	// #453 only opens task cards in workspace channels: the card lives in
+	// workspace room, and the member executes in its sibling workspace ws1 of
+	// the same chat channel test:lobby.
+	if err := source.ClaimTeamWorkspace("test:lobby", "room", "工作区2"); err != nil {
 		t.Fatal(err)
 	}
-	// #453 only opens task cards in workspace channels: keep test:room as the
-	// source chat that owns ws1, and record it as a workspace of a synthetic
-	// outer chat so the source card is allowed.
-	if err := source.ClaimTeamWorkspace("test:outer", "room", "工作区2"); err != nil {
+	if err := source.ClaimTeamWorkspace("test:lobby", "ws1", "工作区1"); err != nil {
 		t.Fatal(err)
 	}
 

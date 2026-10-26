@@ -573,3 +573,166 @@ func claimSourceWorkspace(t *testing.T, e *Engine) {
 		t.Fatal(err)
 	}
 }
+
+// crossWorkspaceGateFixture: the card lives in workspace room of chat lobby,
+// ws1 is a sibling workspace of lobby, ws2 belongs to another chat. The real
+// #453 card gate (isTeamWorkspaceChat) is on, not the nil test default.
+func crossWorkspaceGateFixture(t *testing.T) (*PublicProgress, *progressTestPlatform, *Engine, string, string) {
+	t.Helper()
+	p, platform, run, id := taskRelayFixture(t)
+	e := NewEngine("source", &stubAgent{}, []Platform{platform}, "", LangChinese)
+	e.SetDataDir(p.dataDir)
+	claimSourceWorkspace(t, e)
+	if err := e.ClaimTeamWorkspace("discord:lobby", "ws1", "工作区1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.ClaimTeamWorkspace("discord:other", "ws2", "工作区2"); err != nil {
+		t.Fatal(err)
+	}
+	p.workspaceChat = e.isTeamWorkspaceChat
+	p.resolveWorkspace = e.resolveTaskWorkspace
+	return p, platform, e, run, id
+}
+
+// #431 after #453: a dispatch goes from workspace A to a sibling workspace B of
+// the same chat; a workspace of another chat is refused, and a chat channel
+// cannot be the source at all (the card gate refuses it first).
+func TestCrossWorkspaceDispatchThroughWorkspaceCardGate(t *testing.T) {
+	p, platform, e, run, id := crossWorkspaceGateFixture(t)
+	p.resolveReporter = func(project, platformName, session string) (TaskCardPublisher, error) {
+		return platform, nil
+	}
+	if err := p.checkWorkspaceCard("discord:room:user"); err != nil {
+		t.Fatalf("source workspace refused by the card gate: %v", err)
+	}
+
+	// A -> B, same chat: allowed, the row stays on A's card.
+	if _, err := p.AssignMember(taskWorkspaceAssignment(id, run, "m1", "ws1")); err != nil {
+		t.Fatalf("sibling workspace assignment: %v", err)
+	}
+	task, _ := p.Task(id)
+	if task.SessionKey != "discord:room:user" || len(task.Members) != 1 || task.Members[0].Workspace != "discord:ws1" {
+		t.Fatalf("card = %s, members %+v", task.SessionKey, task.Members)
+	}
+
+	// A -> a workspace of another chat: refused, no row.
+	if _, err := p.AssignMember(taskWorkspaceAssignment(id, run, "m2", "ws2")); err == nil || !strings.Contains(err.Error(), "another chat channel") {
+		t.Fatalf("foreign workspace assignment = %v", err)
+	}
+	if task, _ := p.Task(id); len(task.Members) != 1 {
+		t.Fatalf("foreign assignment created rows: %+v", task.Members)
+	}
+
+	// Chat channel as source: no card opens there, so nothing can be dispatched.
+	lobby := "discord:lobby:user"
+	lobbyRun := p.begin(platform, lobby, LangChinese, nil)
+	if _, err := p.Report(PublicProgressRequest{Project: "source", SessionKey: lobby, Run: lobbyRun, Seq: 1, Kind: "start", Title: "chat task", Summary: "start"}); !errors.Is(err, errCardOutsideWorkspace) {
+		t.Fatalf("chat channel progress start = %v", err)
+	}
+	req := taskWorkspaceAssignment("", lobbyRun, "m3", "ws1")
+	req.SessionKey, req.BatchID = lobby, "chat-batch"
+	if _, err := p.AssignMember(req); !errors.Is(err, errCardOutsideWorkspace) {
+		t.Fatalf("chat channel source assignment = %v", err)
+	}
+	if _, err := e.resolveTaskWorkspace(lobby, "ws1"); err == nil || !strings.Contains(err.Error(), "not a workspace") {
+		t.Fatalf("chat channel source workspace = %v", err)
+	}
+}
+
+// The same three cases through task relay with the real gate and bindings.
+func TestCrossWorkspaceRelayThroughWorkspaceCardGate(t *testing.T) {
+	p, platform, _, _, id := crossWorkspaceGateFixture(t)
+	var starts atomic.Int32
+	rm, session := taskRelayManager(t, p, platform, nil, &starts)
+	source := rm.engines["source"]
+	source.dataDir = p.dataDir
+	for _, ch := range []string{"ws1", "ws2", "lobby"} {
+		rm.Bind("discord", ch, map[string]string{"source": "Source", "target": "Target"})
+	}
+	session.events <- Event{Type: EventResult, Content: "sibling result"}
+
+	req := taskRelayRequest(id)
+	req.Workspace = "ws1"
+	if result, err := rm.Send(context.Background(), req); err != nil || result.Response != "sibling result" {
+		t.Fatalf("sibling workspace relay = %+v, %v", result, err)
+	}
+	foreign := taskRelayRequest(id)
+	foreign.RequestID, foreign.Workspace = "dispatch-foreign", "ws2"
+	if _, err := rm.Send(context.Background(), foreign); err == nil || !strings.Contains(err.Error(), "another chat channel") {
+		t.Fatalf("foreign workspace relay = %v", err)
+	}
+	chat := taskRelayRequest(id)
+	chat.RequestID, chat.SessionKey, chat.Workspace = "dispatch-chat", "discord:lobby:user", "ws1"
+	if _, err := rm.Send(context.Background(), chat); !errors.Is(err, errCardOutsideWorkspace) {
+		t.Fatalf("chat channel source relay = %v", err)
+	}
+	if starts.Load() != 1 {
+		t.Fatalf("refused dispatches started the target: %d starts", starts.Load())
+	}
+}
+
+// Facts of a cross-workspace member land on the source card, so its bot must
+// be bound in the source workspace as well as the execution workspace.
+func TestCrossWorkspaceRequiresBindingInSourceToo(t *testing.T) {
+	p, platform, _, run, id := crossWorkspaceGateFixture(t)
+	p.resolveReporter = func(project, platformName, session string) (TaskCardPublisher, error) {
+		if session == "discord:ws1" {
+			return platform, nil
+		}
+		return nil, errors.New("unbound in " + session)
+	}
+	if _, err := p.AssignMember(taskWorkspaceAssignment(id, run, "m1", "ws1")); err == nil || !strings.Contains(err.Error(), "unbound in discord:room:user") {
+		t.Fatalf("assignment with target unbound in source = %v", err)
+	}
+	if task, _ := p.Task(id); len(task.Members) != 0 {
+		t.Fatalf("rejected assignment created rows: %+v", task.Members)
+	}
+
+	// relay Send already refuses a target unbound in the source chat; the
+	// receipt step checks both channels on its own as well.
+	req := taskRelayRequest(id)
+	req.Workspace = "ws1"
+	if _, _, err := p.beginTaskRelay(req, "Target"); err == nil || !strings.Contains(err.Error(), "unbound in discord:room:user") {
+		t.Fatalf("relay with target unbound in source = %v", err)
+	}
+	if _, ok := p.records[id].record.Relays[req.RequestID]; ok {
+		t.Fatal("failed binding check left a receipt")
+	}
+}
+
+// An assign retry returns its committed grant even after the execution
+// workspace fills up or changes hands; new work there is still refused.
+func TestAssignMemberWorkspaceRetryBeforeLiveChecks(t *testing.T) {
+	p, platform, e, run, id := crossWorkspaceGateFixture(t)
+	p.resolveReporter = func(project, platformName, session string) (TaskCardPublisher, error) {
+		return platform, nil
+	}
+	req := taskWorkspaceAssignment(id, run, "m1", "ws1")
+	grant, err := p.AssignMember(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < teamWorkspaceBusy; i++ {
+		if err := e.ClaimTeamWorkspace("discord:lobby", "ws1", "工作区1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if retry, err := p.AssignMember(req); err != nil || retry.ReportVia != grant.ReportVia || retry.MemberID != grant.MemberID {
+		t.Fatalf("retry after workspace filled = %+v, %v", retry, err)
+	}
+	if _, err := p.AssignMember(taskWorkspaceAssignment(id, run, "m2", "ws1")); err == nil || !strings.Contains(err.Error(), "busy") {
+		t.Fatalf("new work in a full workspace = %v", err)
+	}
+	if !e.releaseTeamWorkspace("discord:ws1", time.Now().Add(time.Hour), false) {
+		t.Fatal("workspace was not released")
+	}
+	if err := e.ClaimTeamWorkspace("discord:other", "ws1", "工作区1"); err != nil {
+		t.Fatal(err)
+	}
+	if retry, err := p.AssignMember(req); err != nil || retry.ReportVia != grant.ReportVia {
+		t.Fatalf("retry after workspace changed hands = %+v, %v", retry, err)
+	}
+	if _, err := p.AssignMember(taskWorkspaceAssignment(id, run, "m3", "ws1")); err == nil || !strings.Contains(err.Error(), "another chat channel") {
+		t.Fatalf("new work in a re-claimed workspace = %v", err)
+	}
+}
