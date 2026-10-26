@@ -42,6 +42,8 @@ type Platform struct {
 	groupNameCache        sync.Map  // groupID -> group name
 	httpURL               string    // OneBot HTTP API URL, e.g. "http://127.0.0.1:3000"
 	team                  teamState // team mode (team.go, issue #344)
+	interimMode           string    // interim_messages: digest (default), all, off (progress.go)
+	progress              *progressBoard
 }
 
 func New(opts map[string]any) (core.Platform, error) {
@@ -68,6 +70,16 @@ func New(opts map[string]any) (core.Platform, error) {
 	if lead := optString(opts["team_lead_bot"]); lead != "" {
 		p.team.lead = lead
 	}
+	switch mode, _ := opts["interim_messages"].(string); mode {
+	case "", interimDigest:
+		p.interimMode = interimDigest
+	case interimAll, interimOff:
+		p.interimMode = mode
+	default:
+		slog.Warn("qq: unknown interim_messages, using digest", "value", mode)
+		p.interimMode = interimDigest
+	}
+	p.progress = newProgressBoard(p.post)
 	return p, nil
 }
 
@@ -479,7 +491,14 @@ func (p *Platform) Send(ctx context.Context, replyCtx any, content string) error
 	if !ok {
 		return fmt.Errorf("qq: invalid reply context")
 	}
+	if p.interim(rctx, content) {
+		return nil
+	}
+	return p.post(rctx, content)
+}
 
+// post sends content now, as text and @ segments (team.go outgoing).
+func (p *Platform) post(rctx *replyContext, content string) error {
 	params := map[string]any{
 		"message": p.outgoing(rctx, content),
 	}
@@ -533,6 +552,9 @@ var _ core.ImageSender = (*Platform)(nil)
 
 func (p *Platform) Stop() error {
 	p.leaveTeam()
+	if p.progress != nil {
+		p.progress.stop()
+	}
 	if p.cancel != nil {
 		p.cancel()
 	}

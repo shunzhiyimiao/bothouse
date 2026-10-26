@@ -145,7 +145,7 @@ func TestStart_FetchesSelfIDWithoutTimeout(t *testing.T) {
 	}
 	defer p.Stop()
 
-	if p.selfID != botUserID {
-		t.Errorf("selfID = %d, want %d (self-message filter would be disabled)", p.selfID, botUserID)
+	if p.selfIDValue() != botUserID {
+		t.Errorf("selfID = %d, want %d (self-message filter would be disabled)", p.selfIDValue(), botUserID)
 	}
 }
