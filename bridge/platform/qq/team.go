@@ -10,6 +10,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/chenhg5/cc-connect/core"
 )
@@ -36,8 +38,13 @@ type teamState struct {
 	openWarn     sync.Once
 	leadReturned sync.Map // "<group>:<message>" → time: the first final chunk @-ed the lead
 	groups       sync.Map // group ID string → struct{}: groups this account is in or heard from
+	groupsLoaded atomic.Bool
 	nameLookups  sync.Map // group ID string → struct{}: a background name lookup is running
+	notes        sync.Map // group ID string → time of the last "make a workspace group" note
 }
+
+// groupListWait bounds how long Start waits for the group list in team mode.
+const groupListWait = 5 * time.Second
 
 const leadReturnTTL = 24 * time.Hour
 
@@ -57,21 +64,38 @@ func (p *Platform) selfIDString() string {
 	return ""
 }
 
-// joinTeam registers this bot once it knows who it is, and learns its groups in the background
-// so a bare "qq:<id>" session key can be told apart from a private chat (ReconstructReplyCtx).
-// Start does not wait for the group list; a group is also learned from its first message.
+// joinTeam registers this bot once it knows who it is, and learns its groups so a bare
+// "qq:<id>" session key can be told apart from a private chat (ReconstructReplyCtx). In team mode
+// Start waits for the list (bounded): core resumes turns and posts restart notices right after
+// Start, and until the list is known a team group's key cannot be resolved.
 func (p *Platform) joinTeam(nick string) {
 	p.team.nick.Store(&nick)
 	if id := p.selfIDValue(); id != 0 {
 		teamPlatforms.Store(id, p)
 	}
-	go p.loadGroups()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		p.loadGroups()
+	}()
+	if !p.teamMode() {
+		return
+	}
+	select {
+	case <-done:
+	case <-time.After(groupListWait):
+		slog.Warn("qq: group list not loaded within the start wait; group sessions resolve once it is", "wait", groupListWait)
+	}
 }
 
 func (p *Platform) loadGroups() {
 	raw, err := p.callAPIRaw("get_group_list", nil)
 	if err != nil {
-		slog.Debug("qq: get_group_list failed", "error", err)
+		if p.teamMode() {
+			slog.Warn("qq: get_group_list failed", "error", err)
+		} else {
+			slog.Debug("qq: get_group_list failed", "error", err)
+		}
 		return
 	}
 	for _, g := range decodeList(raw) {
@@ -85,6 +109,7 @@ func (p *Platform) loadGroups() {
 			p.groupNameCache.Store(key, name)
 		}
 	}
+	p.team.groupsLoaded.Store(true)
 }
 
 func (p *Platform) leaveTeam() {
@@ -98,27 +123,41 @@ func (p *Platform) knownGroup(id string) bool {
 	return ok
 }
 
-// teammate returns the other bot of this process with QQ number id.
-func (p *Platform) teammate(id int64) (*Platform, bool) {
+// ownBot reports whether id is another qq bot of this process, team or not.
+func (p *Platform) ownBot(id int64) bool {
 	if id == 0 || id == p.selfIDValue() {
-		return nil, false
+		return false
 	}
-	v, ok := teamPlatforms.Load(id)
-	if !ok {
-		return nil, false
-	}
-	tp, _ := v.(*Platform)
-	return tp, tp != nil
+	_, ok := teamPlatforms.Load(id)
+	return ok
 }
 
-// teammateNames maps each other bot's nickname to its QQ number.
+// teammate returns the bot with QQ number id when it is in this bot's team: team mode with the
+// same lead. Only a teammate is trusted past allow_from; any other bot of the process, or of
+// another team, could be relaying what a stranger told it.
+func (p *Platform) teammate(id int64) (*Platform, bool) {
+	if !p.teamMode() || !p.ownBot(id) {
+		return nil, false
+	}
+	v, _ := teamPlatforms.Load(id)
+	tp, _ := v.(*Platform)
+	if tp == nil || !tp.teamMode() || tp.team.lead != p.team.lead {
+		return nil, false
+	}
+	return tp, true
+}
+
+func (p *Platform) sameTeam(id int64) bool {
+	_, ok := p.teammate(id)
+	return ok
+}
+
+// teammateNames maps each teammate's nickname to its QQ number.
 func (p *Platform) teammateNames() map[string]string {
 	out := map[string]string{}
-	self := p.selfIDValue()
-	teamPlatforms.Range(func(k, v any) bool {
+	teamPlatforms.Range(func(k, _ any) bool {
 		id, _ := k.(int64)
-		tp, _ := v.(*Platform)
-		if id != 0 && id != self && tp != nil && tp.botName() != "" {
+		if tp, ok := p.teammate(id); ok && tp.botName() != "" {
 			out[tp.botName()] = strconv.FormatInt(id, 10)
 		}
 		return true
@@ -223,7 +262,10 @@ func (p *Platform) handleTeamGroup(payload map[string]any, userID, groupID, mess
 	p.team.groups.Store(gid, struct{}{})
 	in := p.readGroupText(payload)
 	mentioned := in.atSelf || core.NameCalled(in.text, p.botName(), p.teammateNameList()...)
-	if !mentioned {
+	// "/stop all" or a bare stop word calling no bot stops every role (core runs it before any
+	// mention check), so it must reach core like on Discord.
+	stopAll := !fromBot && !mentioned && (core.IsStopAllCommand(in.text) || core.IsBareStopWord(in.text))
+	if !mentioned && !stopAll {
 		if !fromBot {
 			slog.Debug("qq: team mode: group message does not call this bot", "group", groupID)
 			return
@@ -264,6 +306,7 @@ func (p *Platform) handleTeamGroup(payload map[string]any, userID, groupID, mess
 		ReplyCtx:   rctx,
 		Mentioned:  mentioned,
 		FromBot:    fromBot,
+		StopAll:    stopAll && core.IsBareStopWord(in.text),
 	}
 	slog.Debug("qq: team message", "group", groupID, "from_bot", fromBot, "mentioned", mentioned, "lead", rctx.lead)
 	p.handler(p, msg)
@@ -311,7 +354,14 @@ func (p *Platform) dispatchedBy(fromBot, mentioned bool, authorID int64, atLead 
 // "@<teammate nickname>" becomes a real @, and a teammate's final answer to a lead hand-off
 // starts with an @ of the lead, so the lead is woken even if the model forgot to write it.
 func (p *Platform) outgoing(rctx *replyContext, content string) []map[string]any {
-	segs := linkMentions(content, p.teammateNames())
+	// Only the agent's own text hands work over. Thinking/tool lines (interim_messages = all),
+	// progress lines, permission prompts and error notices may quote "@<name>" but must not
+	// call anyone.
+	var alias map[string]string
+	if rctx != nil && rctx.agent && !isStepLine(content) {
+		alias = p.teammateNames()
+	}
+	segs := linkMentions(content, alias)
 	if lead := p.leadToReturn(rctx, content, segs); lead != "" {
 		segs = append([]map[string]any{atSegment(lead), textSegment(" ")}, segs...)
 	}
@@ -322,6 +372,11 @@ func (p *Platform) leadToReturn(rctx *replyContext, content string, segs []map[s
 	if rctx == nil || !rctx.final || rctx.lead == "" || strings.TrimSpace(content) == "" {
 		return ""
 	}
+	// Claim first: a long answer goes out in chunks, and once one chunk reached the lead (with
+	// the model's own @ or ours) no later chunk may @ it again.
+	if !p.claimLeadReturn(rctx) {
+		return ""
+	}
 	for _, s := range segs {
 		if s["type"] == "at" {
 			if data, _ := s["data"].(map[string]any); data["qq"] == rctx.lead {
@@ -329,10 +384,16 @@ func (p *Platform) leadToReturn(rctx *replyContext, content string, segs []map[s
 			}
 		}
 	}
+	return rctx.lead
+}
+
+// claimLeadReturn records that the answer to the trigger of rctx has @-ed the lead; false when
+// that already happened.
+func (p *Platform) claimLeadReturn(rctx *replyContext) bool {
 	now := time.Now()
 	key := fmt.Sprintf("%d:%d", rctx.groupID, rctx.messageID)
 	if _, seen := p.team.leadReturned.LoadOrStore(key, now); seen {
-		return "" // a long answer goes out in chunks: only the first one @-s the lead
+		return false
 	}
 	p.team.leadReturned.Range(func(k, v any) bool {
 		if t, ok := v.(time.Time); ok && now.Sub(t) > leadReturnTTL {
@@ -340,7 +401,7 @@ func (p *Platform) leadToReturn(rctx *replyContext, content string, segs []map[s
 		}
 		return true
 	})
-	return rctx.lead
+	return true
 }
 
 func textSegment(s string) map[string]any {
@@ -389,7 +450,7 @@ func linkMentions(content string, alias map[string]string) []map[string]any {
 			s = s[idx+1:]
 			matched := false
 			for _, n := range names {
-				if strings.HasPrefix(s, n) {
+				if strings.HasPrefix(s, n) && nameEnds(n, s[len(n):]) {
 					flush()
 					segs = append(segs, atSegment(alias[n]))
 					s = s[len(n):]
@@ -406,6 +467,18 @@ func linkMentions(content string, alias map[string]string) []map[string]any {
 	return segs
 }
 
+// nameEnds: an ASCII name must not run on into more ASCII word characters ("@Bob" is not in
+// "@Bobby"). CJK names have no word boundaries ("@龙娘去看看" calls 龙娘), so they are not checked.
+func nameEnds(name, rest string) bool {
+	last, _ := utf8.DecodeLastRuneInString(name)
+	next, _ := utf8.DecodeRuneInString(rest)
+	return !(isASCIIWord(last) && isASCIIWord(next))
+}
+
+func isASCIIWord(r rune) bool {
+	return r < unicode.MaxASCII && (r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r))
+}
+
 // ── core capability interfaces ───────────────────────────────────
 
 var (
@@ -417,6 +490,7 @@ var (
 	_ core.ConfiguredTeamLead        = (*Platform)(nil)
 	_ core.ConfiguredTeamLeadSelf    = (*Platform)(nil)
 	_ core.ReplyContextReconstructor = (*Platform)(nil)
+	_ core.TypingIndicator           = (*Platform)(nil)
 )
 
 // MarkAgentReply implements core.AgentReplyMarker. The reply context is copied: core reuses one
@@ -464,13 +538,15 @@ func (p *Platform) SelfMention() string {
 	return ""
 }
 
-// ResolveChannelName implements core.ChannelNameResolver for groups.
+// ResolveChannelName implements core.ChannelNameResolver for groups. Core calls it while
+// handling a message, so it reads the cache only; an unknown name is fetched in the background
+// and the number stands in until then.
 func (p *Platform) ResolveChannelName(channelID string) (string, error) {
 	gid, err := strconv.ParseInt(channelID, 10, 64)
 	if err != nil {
 		return "", fmt.Errorf("qq: channel %q is not a group", channelID)
 	}
-	return p.resolveGroupName(gid), nil
+	return p.cachedGroupName(gid), nil
 }
 
 // HasConfiguredTeamLead reports whether team_lead_bot is set.

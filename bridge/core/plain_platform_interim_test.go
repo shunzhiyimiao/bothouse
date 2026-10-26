@@ -117,3 +117,18 @@ func TestPlainPlatform_InterimAgentOutputIsMarkedButNotFinal(t *testing.T) {
 		t.Fatalf("final sends = %#v, want exactly the answer", final)
 	}
 }
+
+// Platforms that cannot edit messages tell step lines from the agent's own text by these
+// prefixes (platform/qq progress.go isStepLine). Changing a template's prefix silently turns
+// every tool line on QQ back into a message of its own.
+func TestStepLinePrefixesArePinned(t *testing.T) {
+	want := map[MsgKey]string{MsgThinking: "💭", MsgTool: "🔧", MsgToolResult: "📤"}
+	for _, lang := range []Language{LangEnglish, LangChinese, LangTraditionalChinese, LangJapanese, LangSpanish} {
+		i := NewI18n(lang)
+		for key, prefix := range want {
+			if got := i.T(key); !strings.HasPrefix(got, prefix) {
+				t.Errorf("%s %v = %q, want prefix %q", lang, key, got, prefix)
+			}
+		}
+	}
+}

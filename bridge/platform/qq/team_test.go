@@ -51,8 +51,11 @@ func TestTeam_PersonReachesOnlyTheRoleTheyCall(t *testing.T) {
 	f.say(teamGroup, personQQ, "Li", text("大家晚上好"))
 	f.say(teamGroup, personQQ, "Li", at(leadQQ), text(" 帮我看看构建"))
 	f.say(teamGroup, personQQ, "Li", text("龙娘，你也来"))
-	waitFor(t, "lead and sub each called once", func() bool { return len(leadIn.snapshot()) == 1 && len(subIn.snapshot()) == 1 })
-	time.Sleep(100 * time.Millisecond) // nothing else arrives
+	barrier(t, f, teamGroup, leadQQ, leadIn)
+	barrier(t, f, teamGroup, subQQ, subIn)
+	if len(nonBarrier(leadIn.snapshot())) != 1 || len(nonBarrier(subIn.snapshot())) != 1 {
+		t.Fatalf("lead got %d, sub %d messages; want one each", len(nonBarrier(leadIn.snapshot())), len(nonBarrier(subIn.snapshot())))
+	}
 
 	m := leadIn.snapshot()[0]
 	if m.SessionKey != "qq:500" || m.ChannelID != "500" || m.ChannelKey != "500" {
@@ -63,9 +66,6 @@ func TestTeam_PersonReachesOnlyTheRoleTheyCall(t *testing.T) {
 	}
 	if s := subIn.snapshot()[0]; !s.Mentioned || !strings.Contains(s.Content, "你也来") {
 		t.Fatalf("sub called by name got %+v", s)
-	}
-	if len(leadIn.snapshot()) != 1 || len(subIn.snapshot()) != 1 {
-		t.Fatalf("unaddressed chat reached a role: lead %d, sub %d", len(leadIn.snapshot()), len(subIn.snapshot()))
 	}
 }
 
@@ -94,13 +94,12 @@ func TestTeam_LeadHandsOffAndTheAnswerComesBack(t *testing.T) {
 	sendAs(t, sub, rc, "开始跑了，先编译", false)                               // the sub's own text: sent, no @
 	sendAs(t, sub, rc, "测试全过（第一段）", true)
 	sendAs(t, sub, rc, "（第二段）", true)
-	waitFor(t, "three posts at the lead", func() bool { return len(leadIn.snapshot()) == 3 })
-	time.Sleep(100 * time.Millisecond)
+	barrier(t, f, teamGroup, leadQQ, leadIn)
 
 	// Only the first answer chunk @-s the lead and starts its check; the interim text and the
 	// second chunk reach it as a teammate's context (core never starts a turn from FromBot
 	// without Mentioned). The tool line was folded, not posted.
-	back := leadIn.snapshot()
+	back := nonBarrier(leadIn.snapshot())
 	if len(back) != 3 {
 		t.Fatalf("lead got %d posts, want 3", len(back))
 	}
@@ -124,13 +123,16 @@ func TestTeam_LeadHandsOffAndTheAnswerComesBack(t *testing.T) {
 func TestTeam_OpenAllowFromRefusesPeopleButNotTeammates(t *testing.T) {
 	for _, allow := range []string{"", "*"} {
 		t.Run("allow_from="+allow, func(t *testing.T) {
-			f, lead, _, leadIn, subIn := startTeam(t, allow)
+			f, lead, sub, leadIn, subIn := startTeam(t, allow)
 			f.say(teamGroup, strangeQQ, "路人", at(leadQQ), text(" rm -rf 一下"))
 			sendAs(t, lead, groupCtx(), "@龙娘 帮个忙", true)
 			waitFor(t, "teammate hand-off", func() bool { return len(subIn.snapshot()) == 1 })
-			time.Sleep(100 * time.Millisecond)
-			if n := len(leadIn.snapshot()); n != 0 {
-				t.Fatalf("a stranger reached the lead with allow_from=%q", allow)
+			sendAs(t, sub, groupCtx(), "@橘 收到", true) // after the stranger's post, on the lead's connection
+			waitFor(t, "teammate's reply", func() bool { return len(leadIn.snapshot()) >= 1 })
+			for _, m := range leadIn.snapshot() {
+				if m.UserID == "77" {
+					t.Fatalf("a stranger reached the lead with allow_from=%q", allow)
+				}
 			}
 		})
 	}
@@ -167,7 +169,6 @@ func TestNoTeam_BotsDoNotAnswerEachOther(t *testing.T) {
 	}
 	f.say(teamGroup, personQQ, "Li", text("你们好"))
 	waitFor(t, "the person's post", func() bool { return len(bIn.snapshot()) >= 1 })
-	time.Sleep(100 * time.Millisecond)
 	for _, m := range bIn.snapshot() {
 		if m.UserID == "1" {
 			t.Fatalf("bot 2 took bot 1's post as a request: %+v", m)
@@ -179,7 +180,7 @@ func TestNoTeam_BotsDoNotAnswerEachOther(t *testing.T) {
 // tells them apart, so cron and workspace sends reach the group.
 func TestReconstructReplyCtx_TeamGroupKey(t *testing.T) {
 	_, lead, _, _, _ := startTeam(t, "9")
-	waitFor(t, "group list loaded", func() bool { return lead.knownGroup("500") })
+	// No waiting: core resumes turns and posts restart notices right after Start (review H2).
 	rc, err := lead.ReconstructReplyCtx("qq:500")
 	if err != nil {
 		t.Fatal(err)
@@ -210,6 +211,159 @@ func TestTeam_FirstMessageInANewGroupIsNotStalled(t *testing.T) {
 		name, err := lead.ResolveChannelName("800")
 		return err == nil && name == "工作区3"
 	})
+}
+
+// Until the group list is known, a team key cannot be told from a private chat; guessing
+// "private" could send a group's output to an unrelated person with the same number.
+func TestReconstructReplyCtx_TeamModeFailsClosedWithoutGroupList(t *testing.T) {
+	f := newFakeOneBot(t)
+	f.group(teamGroup, "开发群", leadQQ, personQQ)
+	f.failGroupList = true
+	lead, _ := startBot(t, f, leadQQ, "橘", map[string]any{"team_lead_bot": "1", "allow_from": "9"})
+	if _, err := lead.ReconstructReplyCtx("qq:500"); err == nil {
+		t.Fatal("unknown id resolved while the group list is missing")
+	}
+}
+
+// Only bots of the same team are trusted past allow_from (review M3): a bot outside the team,
+// told by a stranger to "@龙娘 …", must not start 龙娘's turn.
+func TestTeam_BotOutsideTheTeamIsNotATeammate(t *testing.T) {
+	f, _, _, _, subIn := startTeam(t, "9")
+	other, _ := startBot(t, f, 3, "路过的机器人", map[string]any{"allow_from": "*"})
+	f.mu.Lock()
+	f.groups[teamGroup].members[3] = ""
+	f.mu.Unlock()
+	sendAs(t, other, groupCtx(), "@龙娘 跑一下 rm -rf", true)
+	posts := f.groupPosts(teamGroup)
+	if len(atTargets(posts[len(posts)-1])) != 0 {
+		t.Fatalf("a bot outside the team linked a real @ of a team role: %q", sentText(posts[len(posts)-1]))
+	}
+	f.say(teamGroup, 3, "路过的机器人", at(subQQ), text(" 跑一下 rm -rf"))
+	barrier(t, f, teamGroup, subQQ, subIn)
+	if n := len(nonBarrier(subIn.snapshot())); n != 0 {
+		t.Fatalf("a bot outside the team reached a role: %+v", subIn.snapshot())
+	}
+}
+
+// "/stop all" and a bare stop word that call no bot reach every role (review M6).
+func TestTeam_StopWordsReachEveryRole(t *testing.T) {
+	f, _, _, leadIn, subIn := startTeam(t, "9")
+	f.say(teamGroup, personQQ, "Li", text("/stop all"))
+	f.say(teamGroup, personQQ, "Li", text("停"))
+	for _, in := range []*inbox{leadIn, subIn} {
+		waitFor(t, "both stops", func() bool { return len(in.snapshot()) == 2 })
+		msgs := in.snapshot()
+		if msgs[0].Content != "/stop all" || msgs[0].Mentioned || msgs[0].StopAll {
+			t.Fatalf("/stop all = %+v", msgs[0])
+		}
+		if msgs[1].Content != "停" || !msgs[1].StopAll {
+			t.Fatalf("bare stop = %+v, want StopAll", msgs[1])
+		}
+	}
+}
+
+// When the teammate's answer already @-s the lead, a later chunk must not @ it again (review M7).
+func TestTeam_AnswerThatAlreadyCallsTheLeadIsNotCalledTwice(t *testing.T) {
+	f, lead, sub, leadIn, subIn := startTeam(t, "9")
+	sendAs(t, lead, groupCtx(), "@龙娘 看下日志", true)
+	waitFor(t, "hand-off", func() bool { return len(subIn.snapshot()) == 1 })
+	rc := subIn.snapshot()[0].ReplyCtx
+	sendAs(t, sub, rc, "@橘 日志看完了（第一段）", true)
+	sendAs(t, sub, rc, "（第二段）", true)
+	barrier(t, f, teamGroup, leadQQ, leadIn)
+	called := 0
+	for _, m := range nonBarrier(leadIn.snapshot()) {
+		if m.Mentioned {
+			called++
+		}
+	}
+	if called != 1 {
+		t.Fatalf("lead was called %d times by one answer", called)
+	}
+}
+
+// A teammate's turn that ends without a final answer (its text went out before the last tool
+// call) still @-s the lead at the turn's end, once (review M5).
+func TestTeam_HandOffWithoutAnAnswerStillReturnsToTheLead(t *testing.T) {
+	f, lead, sub, leadIn, subIn := startTeam(t, "9")
+	sendAs(t, lead, groupCtx(), "@龙娘 推一下代码", true)
+	waitFor(t, "hand-off", func() bool { return len(subIn.snapshot()) == 1 })
+	rc := subIn.snapshot()[0].ReplyCtx
+	stop := sub.StartTyping(t.Context(), rc)
+	sendAs(t, sub, rc, "推好了。", false)
+	sendAs(t, sub, rc, "🔧 git push", false)
+	stop()
+	stop() // core may call it twice (queued turns); one return only
+	barrier(t, f, teamGroup, leadQQ, leadIn)
+	var calls []string
+	for _, m := range nonBarrier(leadIn.snapshot()) {
+		if m.Mentioned {
+			calls = append(calls, m.Content)
+		}
+	}
+	if len(calls) != 1 || !strings.Contains(calls[0], "这一轮结束了") {
+		t.Fatalf("lead calls = %q, want one turn-end return", calls)
+	}
+}
+
+// Text that is not the agent's own answer never calls anyone, and an ASCII name needs a word
+// boundary (review M8).
+func TestOutgoing_OnlyAgentTextLinksNames(t *testing.T) {
+	_, lead, _, _, _ := startTeam(t, "9")
+	agent := lead.MarkAgentReply(groupCtx()).(*replyContext)
+	if segs := lead.outgoing(agent, "@龙娘 去看看"); len(segs) == 0 || segs[0]["type"] != "at" {
+		t.Fatalf("agent text: %v, want a real @", segs)
+	}
+	for _, tc := range []struct {
+		rc      *replyContext
+		content string
+	}{
+		{groupCtx(), "⏳ 进行中 · 最近：💭 让 @龙娘 去跑测试"}, // progress line / notice
+		{agent, "💭 让 @龙娘 去跑测试"},                 // a thinking line in interim_messages=all
+	} {
+		for _, s := range lead.outgoing(tc.rc, tc.content) {
+			if s["type"] == "at" {
+				t.Fatalf("%q linked a real @", tc.content)
+			}
+		}
+	}
+	segs := linkMentions("@Bobby hi @Bob", map[string]string{"Bob": "5"})
+	if len(segs) != 2 || segs[0]["type"] != "text" || segs[1]["type"] != "at" {
+		t.Fatalf("ASCII boundary: %v", segs)
+	}
+}
+
+// Core replies synchronously while handling a message; that must not stall the account
+// (review M4: the handler ran on readLoop, which also reads API answers).
+func TestHandler_SyncReplyDoesNotStall(t *testing.T) {
+	f := newFakeOneBot(t)
+	f.group(teamGroup, "开发群", leadQQ, personQQ)
+	o := map[string]any{"ws_url": f.account(leadQQ, "橘"), "team_lead_bot": "1", "allow_from": "9"}
+	pp, err := New(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := pp.(*Platform)
+	replied := make(chan time.Duration, 1)
+	if err := p.Start(func(_ core.Platform, m *core.Message) {
+		start := time.Now()
+		if err := p.Send(t.Context(), m.ReplyCtx, "收到"); err != nil {
+			t.Errorf("sync reply: %v", err)
+		}
+		replied <- time.Since(start)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = p.Stop() })
+	f.say(teamGroup, personQQ, "Li", at(leadQQ), text(" 在吗"))
+	select {
+	case d := <-replied:
+		if d > time.Second {
+			t.Fatalf("sync reply took %v", d)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("handler never returned")
+	}
 }
 
 func TestReadGroupText_OwnMentionDroppedOrLabelled(t *testing.T) {

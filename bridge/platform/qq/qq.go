@@ -42,9 +42,13 @@ type Platform struct {
 	groupNameCache        sync.Map  // groupID -> group name
 	httpURL               string    // OneBot HTTP API URL, e.g. "http://127.0.0.1:3000"
 	team                  teamState // team mode (team.go, issue #344)
-	interimMode           string    // interim_messages: digest (default), all, off (progress.go)
+	interimMode           string    // interim_messages: digest (default in team mode), all, off (progress.go)
 	progress              *progressBoard
+	events                chan map[string]any // message events for eventLoop
 }
+
+// eventQueue bounds the message events waiting for the event worker.
+const eventQueue = 256
 
 func New(opts map[string]any) (core.Platform, error) {
 	wsURL, _ := opts["ws_url"].(string)
@@ -70,14 +74,20 @@ func New(opts map[string]any) (core.Platform, error) {
 	if lead := optString(opts["team_lead_bot"]); lead != "" {
 		p.team.lead = lead
 	}
+	// Default: digest in team mode (a group of several roles), the old one-message-per-step
+	// otherwise, so existing single-bot setups keep what they had.
+	defaultInterim := interimAll
+	if p.teamMode() {
+		defaultInterim = interimDigest
+	}
 	switch mode, _ := opts["interim_messages"].(string); mode {
-	case "", interimDigest:
-		p.interimMode = interimDigest
-	case interimAll, interimOff:
+	case "":
+		p.interimMode = defaultInterim
+	case interimDigest, interimAll, interimOff:
 		p.interimMode = mode
 	default:
-		slog.Warn("qq: unknown interim_messages, using digest", "value", mode)
-		p.interimMode = interimDigest
+		slog.Warn("qq: unknown interim_messages, using the default", "value", mode, "default", defaultInterim)
+		p.interimMode = defaultInterim
 	}
 	p.progress = newProgressBoard(p.post)
 	return p, nil
@@ -120,6 +130,10 @@ func (p *Platform) Start(handler core.MessageHandler) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	p.cancel = cancel
+	if p.events == nil {
+		p.events = make(chan map[string]any, eventQueue)
+	}
+	go p.eventLoop(ctx)
 
 	// Start readLoop BEFORE callAPI: callAPI's response is routed by readLoop,
 	// so calling it first would always time out after 15s and leave selfID=0,
@@ -175,9 +189,27 @@ func (p *Platform) readLoop(ctx context.Context) {
 			continue
 		}
 
-		// Otherwise it's an event
+		// Otherwise it's an event. It is handled on the event worker, never here: handling may
+		// call the OneBot API (core replies synchronously, group names are looked up), and the
+		// answer can only be read by this loop, so handling it here waited out the 15s API timeout.
 		postType, _ := payload["post_type"].(string)
 		if postType == "message" {
+			select {
+			case p.events <- payload:
+			default:
+				slog.Warn("qq: event queue full, dropping a message", "message_id", jsonInt64(payload, "message_id"))
+			}
+		}
+	}
+}
+
+// eventLoop handles message events one at a time, in the order they arrived.
+func (p *Platform) eventLoop(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case payload := <-p.events:
 			p.handleMessage(payload)
 		}
 	}
@@ -227,7 +259,10 @@ func (p *Platform) handleMessage(payload map[string]any) {
 		return
 	}
 
-	_, fromBot := p.teammate(userID)
+	if p.ownBot(userID) && !p.sameTeam(userID) {
+		return // another bot of this process, not a teammate: never a request (two bots would answer each other)
+	}
+	fromBot := p.sameTeam(userID)
 	if !fromBot && !p.isAllowed(userID) {
 		return
 	}
@@ -249,9 +284,6 @@ func (p *Platform) handleMessage(payload map[string]any) {
 	if msgType == "group" && p.teamMode() {
 		p.handleTeamGroup(payload, userID, groupID, messageID, userName, fromBot, images, files, audio)
 		return
-	}
-	if fromBot {
-		return // outside team mode a teammate's post is not a request
 	}
 	if text == "" && len(images) == 0 && len(files) == 0 && audio == nil {
 		return
@@ -736,6 +768,12 @@ func (p *Platform) ReconstructReplyCtx(sessionKey string) (any, error) {
 		// team mode keys a group as qq:{groupID}, like a private chat; the group list tells them apart
 		gid, _ := strconv.ParseInt(parts[1], 10, 64)
 		return &replyContext{messageType: "group", groupID: gid}, nil
+	}
+	if p.teamMode() && !p.team.groupsLoaded.Load() {
+		// Group and user numbers share one space: guessing "private" could deliver a group's
+		// output to an unrelated person. Refuse until the group list is known.
+		go p.loadGroups()
+		return nil, fmt.Errorf("qq: %q: group list not loaded yet, cannot tell a group from a private chat", sessionKey)
 	}
 	uid, _ := strconv.ParseInt(parts[1], 10, 64)
 	return &replyContext{messageType: "private", userID: uid}, nil

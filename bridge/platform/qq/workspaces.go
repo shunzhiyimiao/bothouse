@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/chenhg5/cc-connect/core"
@@ -24,8 +23,6 @@ var _ core.TeamWorkspaceChannels = (*Platform)(nil)
 
 // workspaceNoteEvery limits the "please create the group" note to one per chat in this window.
 const workspaceNoteEvery = 10 * time.Minute
-
-var workspaceNotes sync.Map // "<self>:<group>" → time of the last note
 
 // TeamGuildChannels implements core.TeamWorkspaceChannels. QQ has no guild: "the guild" is every
 // group this account is in, all without a category.
@@ -71,11 +68,10 @@ func (p *Platform) CreateTeamWorkspaceChannel(ctx context.Context, besideChannel
 	if err != nil {
 		return core.TeamChannel{}, fmt.Errorf("qq: workspace: channel %q is not a group", besideChannelID)
 	}
-	key := p.selfIDString() + ":" + besideChannelID
 	now := time.Now()
-	last, seen := workspaceNotes.Load(key)
+	last, seen := p.team.notes.Load(besideChannelID)
 	if t, ok := last.(time.Time); !seen || !ok || now.Sub(t) >= workspaceNoteEvery {
-		workspaceNotes.Store(key, now)
+		p.team.notes.Store(besideChannelID, now)
 		note := fmt.Sprintf("要开新的工作区，但 QQ 机器人不能自己建群。请建一个群，群名设成「%s」，把%s拉进去，然后再说一次。", name, p.workspaceMembersText())
 		if err := p.Send(ctx, &replyContext{messageType: "group", groupID: gid}, note); err != nil {
 			slog.Warn("qq: workspace: note failed", "group", gid, "error", err)
@@ -84,17 +80,13 @@ func (p *Platform) CreateTeamWorkspaceChannel(ctx context.Context, besideChannel
 	return core.TeamChannel{}, fmt.Errorf("qq: workspace %q: QQ bots cannot create groups; create it by hand and add the team", name)
 }
 
-// workspaceMembersText names who must be in a workspace group: every role of this process.
+// workspaceMembersText names who must be in a workspace group: this bot and its teammates.
 func (p *Platform) workspaceMembersText() string {
-	var names []string
-	teamPlatforms.Range(func(k, v any) bool {
+	names := []string{fmt.Sprintf("%s（%d）", p.botName(), p.selfIDValue())}
+	teamPlatforms.Range(func(k, _ any) bool {
 		id, _ := k.(int64)
-		if tp, _ := v.(*Platform); tp != nil {
-			n := tp.botName()
-			if n == "" {
-				n = strconv.FormatInt(id, 10)
-			}
-			names = append(names, fmt.Sprintf("%s（%d）", n, id))
+		if tp, ok := p.teammate(id); ok {
+			names = append(names, fmt.Sprintf("%s（%d）", tp.botName(), id))
 		}
 		return true
 	})

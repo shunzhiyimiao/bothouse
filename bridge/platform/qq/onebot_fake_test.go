@@ -29,6 +29,8 @@ type fakeOneBot struct {
 	calls    []fakeCall
 	nextID   int64
 	sent     map[int64]fakeSent // message_id → what was posted
+
+	failGroupList bool // get_group_list answers an error
 }
 
 type fakeAccount struct {
@@ -153,6 +155,9 @@ func (f *fakeOneBot) handle(acc *fakeAccount, action string, params map[string]a
 	case "get_group_list":
 		f.mu.Lock()
 		defer f.mu.Unlock()
+		if f.failGroupList {
+			return nil, 1404
+		}
 		list := []map[string]any{}
 		for _, g := range f.groups {
 			if _, in := g.members[acc.id]; in {
@@ -367,6 +372,35 @@ func (in *inbox) snapshot() []*core.Message {
 	in.mu.Lock()
 	defer in.mu.Unlock()
 	return append([]*core.Message(nil), in.msgs...)
+}
+
+// barrier makes "nothing else arrived" checks exact: a person @-s bot with a marker and the test
+// waits for it. Events reach a bot in order on one connection and are handled in order, so
+// everything posted before the barrier has been handled once it arrives.
+func barrier(t *testing.T, f *fakeOneBot, gid, bot int64, in *inbox) {
+	t.Helper()
+	id := strconv.FormatInt(f.say(gid, 9, "Li", at(bot), text(" "+barrierText)), 10)
+	waitFor(t, "barrier", func() bool {
+		for _, m := range in.snapshot() {
+			if m.MessageID == id {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+const barrierText = "（屏障）"
+
+// nonBarrier drops barrier messages.
+func nonBarrier(msgs []*core.Message) []*core.Message {
+	var out []*core.Message
+	for _, m := range msgs {
+		if !strings.Contains(m.Content, barrierText) {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 // waitFor polls cond for up to 3s.

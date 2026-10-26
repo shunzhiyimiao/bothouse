@@ -79,39 +79,52 @@ func TestProgress_ShortTurnPostsOnlyTheAnswer(t *testing.T) {
 
 // The agent's own text mid-turn is sent at once, never folded: when a turn's text all goes out
 // before its last tool call, core sends no final answer, so folding it would lose the answer.
-func TestProgress_AgentTextIsSentNotFolded(t *testing.T) {
+// Such a turn ends through core's typing hook, and its progress ends with it (review H1: it used
+// to keep posting "still running" after the turn).
+func TestProgress_TurnEndWithoutAnswerEndsProgress(t *testing.T) {
 	f, lead, _, _, _ := startTeam(t, "9")
 	fastProgress(lead)
-	sendAs(t, lead, groupCtx(), "结论：主分支的构建是好的，问题在 CI 缓存。", false)
-	sendAs(t, lead, groupCtx(), "🔧 **工具 #1: Bash**\n---\ngit push", false)
+	rc := groupCtx()
+	stop := lead.StartTyping(t.Context(), rc)
+	sendAs(t, lead, rc, "结论：主分支的构建是好的，问题在 CI 缓存。", false)
+	sendAs(t, lead, rc, "🔧 **工具 #1: Bash**\n---\ngit push", false)
 	posts := f.groupPosts(teamGroup)
 	if len(posts) == 0 || !strings.Contains(sentText(posts[len(posts)-1]), "问题在 CI 缓存") {
-		t.Fatalf("the agent's text was not sent at once")
+		t.Fatal("the agent's text was not sent at once")
 	}
-	// No final answer follows (core's "only the unsent remainder" path): the text is already out.
-	waitFor(t, "progress line for the tool call", func() bool { return len(progressPosts(f, teamGroup)) == 1 })
+	stop() // core: the turn ended, with no final answer (everything was already out)
+	time.Sleep(400 * time.Millisecond)
+	if n := len(progressPosts(f, teamGroup)); n != 0 {
+		t.Fatalf("progress posted %d lines after the turn ended", n)
+	}
+
+	// The next turn counts from zero.
+	stop = lead.StartTyping(t.Context(), rc)
+	defer stop()
+	sendAs(t, lead, rc, "🔧 step", false)
+	waitFor(t, "next turn's progress", func() bool { return len(progressPosts(f, teamGroup)) == 1 })
+	if p := progressPosts(f, teamGroup)[0]; !strings.Contains(p, " 1 步") {
+		t.Fatalf("next turn's progress = %q, want its own count", p)
+	}
 }
 
-// A notice that is not agent output (an error, a status line) replaces pending progress.
-func TestProgress_NoticeDropsPendingProgress(t *testing.T) {
+// A notice mid-turn (a permission prompt, "inserted") goes out and leaves the turn's progress be.
+func TestProgress_NoticeMidTurnKeepsProgress(t *testing.T) {
 	f, lead, _, _, _ := startTeam(t, "9")
 	fastProgress(lead)
 	sendAs(t, lead, groupCtx(), "🔧 Bash: go build", false)
-	if err := lead.Send(t.Context(), groupCtx(), "❌ agent 出错了"); err != nil {
+	if err := lead.Send(t.Context(), groupCtx(), "↪ 已插入"); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(300 * time.Millisecond)
-	if n := len(progressPosts(f, teamGroup)); n != 0 {
-		t.Fatalf("progress posted after an error notice: %d", n)
-	}
+	waitFor(t, "progress after a notice", func() bool { return len(progressPosts(f, teamGroup)) == 1 })
 }
 
 func TestProgress_ModesAllAndOff(t *testing.T) {
 	for _, tc := range []struct {
 		mode string
 		want int
-	}{{"all", 3}, {"off", 0}} {
-		t.Run(tc.mode, func(t *testing.T) {
+	}{{"all", 3}, {"off", 0}, {"", 3}} { // "" outside team mode = all, the old behaviour
+		t.Run("mode="+tc.mode, func(t *testing.T) {
 			f := newFakeOneBot(t)
 			f.group(teamGroup, "开发群", leadQQ, personQQ)
 			p, _ := startBot(t, f, leadQQ, "橘", map[string]any{"interim_messages": tc.mode})
@@ -121,9 +134,22 @@ func TestProgress_ModesAllAndOff(t *testing.T) {
 			}
 			time.Sleep(300 * time.Millisecond)
 			if got := len(f.groupPosts(teamGroup)); got != tc.want {
-				t.Fatalf("interim_messages=%s: %d posts, want %d", tc.mode, got, tc.want)
+				t.Fatalf("interim_messages=%q: %d posts, want %d", tc.mode, got, tc.want)
 			}
 		})
+	}
+}
+
+// After Stop nothing is posted, not even for a step that arrives late.
+func TestProgress_NothingAfterStop(t *testing.T) {
+	f, lead, _, _, _ := startTeam(t, "9")
+	fastProgress(lead)
+	sendAs(t, lead, groupCtx(), "🔧 step", false)
+	lead.progress.stop()
+	lead.progress.add(groupCtx(), "🔧 late step")
+	time.Sleep(300 * time.Millisecond)
+	if n := len(progressPosts(f, teamGroup)); n != 0 {
+		t.Fatalf("%d progress lines after stop", n)
 	}
 }
 

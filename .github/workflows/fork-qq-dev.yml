@@ -78,7 +78,7 @@ jobs:
         # tests never mark their channel as one ("missing current run token" on main and develop).
         run: >-
           /tmp/run.sh "test core" go test -tags no_web -count=1
-          -run 'PlainPlatform|TeamWorkspace|Mention|LeadReturn|CUJ'
+          -run 'PlainPlatform|StepLinePrefixes|TeamWorkspace|Mention|LeadReturn|CUJ'
           -skip 'TestCUJ_Progress1_QuietQueueAndFailure|TestCUJ_Progress2_PinnedIndexLifecycle|TestCUJ_Progress3_ContinueAndAcceptSameCard'
           ./core/
       - name: full suite
