@@ -150,7 +150,6 @@ func (p *boardPlatform) latest(t *testing.T) *ChannelBoardPayload {
 func newBoardEngine(t *testing.T, h *channelBoardHub, name string, p Platform) *Engine {
 	t.Helper()
 	e := NewEngine(name, &stubAgent{}, []Platform{p}, "", LangChinese)
-	allChatsAreWorkspaces(e) // the board only goes to workspace / team chat channels (#613)
 	defaultChannelBoard.removeSource(e)
 	e.board = h
 	h.addSource(e)
@@ -476,7 +475,6 @@ func TestChannelBoard_CapacityRetryKeepsOneRow(t *testing.T) {
 	p := newBoardPlatform()
 	sess := &capacityScriptSession{events: make(chan Event, 8), script: []string{"cap", "cap", "third"}}
 	e := NewEngine("maomao", &resultAgent{session: sess}, []Platform{p}, "", LangChinese)
-	allChatsAreWorkspaces(e)
 	defaultChannelBoard.removeSource(e)
 	e.board = h
 	h.addSource(e)
